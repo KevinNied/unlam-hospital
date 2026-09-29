@@ -25,6 +25,94 @@ import sqlite3
 import tkinter as tk
 from tkinter import messagebox, ttk
 from datetime import datetime
+from pathlib import Path
+
+try:
+    from tkcalendar import DateEntry
+except ImportError:
+    DateEntry = None
+
+COLOR_FONDO = '#F4F7FB'
+COLOR_TEXTO = '#183B56'
+COLOR_SECUNDARIO = '#5C7184'
+
+
+class BotonRedondeado(tk.Canvas):
+    """Botón sin relieve nativo para conservar bordes redondeados en Windows."""
+
+    def __init__(self, parent, text, command, color, width=140, height=44):
+        super().__init__(
+            parent,
+            width=width,
+            height=height,
+            bg=parent.cget('bg'),
+            highlightthickness=0,
+            bd=0,
+            cursor='hand2'
+        )
+        self.command = command
+        self.color = color
+        self.hover_color = self._oscurecer(color)
+        self._dibujar(text, color)
+        self.bind('<Enter>', lambda event: self._dibujar(text, self.hover_color))
+        self.bind('<Leave>', lambda event: self._dibujar(text, self.color))
+        self.bind('<Button-1>', lambda event: self.command())
+
+    def _dibujar(self, text, color):
+        self.delete('all')
+        ancho = int(self['width'])
+        alto = int(self['height'])
+        radio = 12
+        self.create_rectangle(radio, 0, ancho - radio, alto, fill=color, outline=color)
+        self.create_rectangle(0, radio, ancho, alto - radio, fill=color, outline=color)
+        for x, y, inicio in ((0, 0, 90), (ancho - 2 * radio, 0, 0),
+                             (0, alto - 2 * radio, 180), (ancho - 2 * radio, alto - 2 * radio, 270)):
+            self.create_arc(x, y, x + 2 * radio, y + 2 * radio, start=inicio,
+                            extent=90, fill=color, outline=color)
+        self.create_text(ancho // 2, alto // 2, text=text,
+                         fill='white', font=('Segoe UI', 11, 'bold'))
+
+    @staticmethod
+    def _oscurecer(color):
+        color = color.lstrip('#')
+        rgb = [max(0, int(int(color[i:i + 2], 16) * 0.85)) for i in (0, 2, 4)]
+        return '#' + ''.join(f'{valor:02x}' for valor in rgb)
+
+
+class EntradaRedondeada(tk.Frame):
+    """Campo de texto cuadrado para igualar entradas y listas desplegables."""
+
+    def __init__(self, parent, width=205, height=30):
+        super().__init__(
+            parent,
+            width=width,
+            height=height,
+            bg='white',
+            highlightbackground='#AEBBC5',
+            highlightcolor='#2B6384',
+            highlightthickness=1,
+            bd=0
+        )
+        self.pack_propagate(False)
+        self.entry = tk.Entry(self, relief='flat', bd=0, highlightthickness=0,
+                              bg='white', fg=COLOR_TEXTO, insertbackground=COLOR_TEXTO,
+                              font=('Segoe UI', 10))
+        self.entry.pack(fill='both', expand=True, padx=1, pady=1)
+
+    def get(self):
+        return self.entry.get()
+
+    def delete(self, *args):
+        return self.entry.delete(*args)
+
+    def insert(self, *args):
+        return self.entry.insert(*args)
+
+    def bind(self, sequence=None, func=None, add=None):
+        return self.entry.bind(sequence, func, add)
+
+    def focus(self):
+        return self.entry.focus()
 
 # ================================================================
 # CAPA DE ACCESO A DATOS (BACKEND)
@@ -32,7 +120,8 @@ from datetime import datetime
 
 def conectar_bd():
     """Establece conexión con la base de datos Salud.db"""
-    return sqlite3.connect('BD/Salud.db')
+    ruta_bd = Path(__file__).resolve().parent / 'DB' / 'Salud.db'
+    return sqlite3.connect(ruta_bd)
 
 
 # -------------------- CRUD DE PACIENTES --------------------
@@ -108,6 +197,26 @@ def buscar_paciente(dni):
     except Exception as e:
         print(f"[ERROR] Error en buscar_paciente: {e}")
         return None
+
+
+def buscar_pacientes_por_dni(texto, limite=8):
+    """Busca pacientes cuyo DNI comienza con el texto ingresado."""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT id, dni, nombre, apellido, activo
+            FROM Pacientes
+            WHERE dni LIKE ?
+            ORDER BY dni
+            LIMIT ?
+        """, (f'{texto}%', limite))
+        resultados = cursor.fetchall()
+        conexion.close()
+        return resultados
+    except Exception as e:
+        print(f"[ERROR] Error en buscar_pacientes_por_dni: {e}")
+        return []
 
 
 def buscar_paciente_por_id(paciente_id):
@@ -287,6 +396,50 @@ def contar_prescripciones_paciente(paciente_id):
         return 0
 
 
+def listar_prescripciones_paciente(paciente_id):
+    """Obtiene las prescripciones recientes de un paciente para su ficha."""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT p.fecha_prescripcion, f.nombre, p.dosis, p.via_administracion,
+                   p.frecuencia, p.fecha_fin, p.activo
+            FROM Prescripciones p
+            LEFT JOIN Farmacos f ON p.farmaco_id = f.id
+            WHERE p.paciente_id = ?
+            ORDER BY p.fecha_prescripcion DESC
+            LIMIT 20
+        """, (paciente_id,))
+        resultados = cursor.fetchall()
+        conexion.close()
+        return resultados
+    except Exception as e:
+        print(f"[ERROR] Error en listar_prescripciones_paciente: {e}")
+        return []
+
+
+def listar_signos_vitales_paciente(paciente_id):
+    """Obtiene los signos vitales recientes de un paciente para su ficha."""
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT s.fecha_hora, s.presion_sistolica, s.presion_diastolica,
+                   s.frecuencia_cardiaca, s.temperatura, s.saturacion_oxigeno,
+                   s.motivo_consulta, s.activo
+            FROM SignosVitales s
+            WHERE s.paciente_id = ?
+            ORDER BY s.fecha_hora DESC
+            LIMIT 20
+        """, (paciente_id,))
+        resultados = cursor.fetchall()
+        conexion.close()
+        return resultados
+    except Exception as e:
+        print(f"[ERROR] Error en listar_signos_vitales_paciente: {e}")
+        return []
+
+
 # ================================================================
 # CAPA DE PRESENTACIÓN (FRONTEND)
 # ================================================================
@@ -298,7 +451,18 @@ class AppPacientes:
         self.root = root
         self.root.title("OpenHIS-UNLaM - Gestión de Pacientes")
         self.root.geometry("1050x650")
-        self.root.configure(bg='#f0f0f0')
+        self.root.configure(bg=COLOR_FONDO)
+
+        estilo = ttk.Style(self.root)
+        estilo.theme_use('clam')
+        estilo.configure('Patients.Treeview', background='#FFFFFF', fieldbackground='#FFFFFF',
+                 foreground=COLOR_TEXTO, rowheight=32, font=('Segoe UI', 10))
+        estilo.configure('Patients.Treeview.Heading', background='#1B4965', foreground='white',
+                 font=('Segoe UI', 10, 'bold'), padding=(8, 8), relief='flat', borderwidth=0)
+        estilo.map('Patients.Treeview.Heading', background=[('active', '#2B6384')],
+                   foreground=[('active', 'white')])
+        estilo.map('Patients.Treeview', background=[('selected', '#B8D8E8')],
+               foreground=[('selected', COLOR_TEXTO)])
         
         # Centrar la ventana
         self.root.update_idletasks()
@@ -309,119 +473,90 @@ class AppPacientes:
         self.root.geometry(f'{ancho}x{alto}+{x}+{y}')
         
         # ---------- FRAME PRINCIPAL ----------
-        self.frame_principal = tk.Frame(self.root, bg='#f0f0f0')
+        self.frame_principal = tk.Frame(self.root, bg=COLOR_FONDO)
         self.frame_principal.pack(fill='both', expand=True, padx=20, pady=20)
         
         # ---------- TÍTULO ----------
         titulo = tk.Label(
             self.frame_principal,
             text="👤 HOSPITAL UNIVERSITARIO SAN JUSTO",
-            font=('Arial', 18, 'bold'),
-            bg='#f0f0f0',
-            fg='#003366'
+            font=('Segoe UI', 18, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_TEXTO
         )
         titulo.pack(pady=5)
         
         subtitulo = tk.Label(
             self.frame_principal,
             text="Sistema de Gestión de Pacientes - Sprint 3",
-            font=('Arial', 11),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 11),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         )
         subtitulo.pack(pady=2)
         
-        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        tk.Frame(self.frame_principal, height=1, bg='#D8E2EA').pack(fill='x', pady=10)
         
         # ---------- BOTONES PRINCIPALES ----------
-        frame_botones = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_botones = tk.Frame(self.frame_principal, bg=COLOR_FONDO)
         frame_botones.pack(pady=10)
         
         estilo_boton = {
-            'font': ('Arial', 10, 'bold'),
+            'font': ('Segoe UI', 10, 'bold'),
             'padx': 15,
             'pady': 8,
-            'relief': 'raised',
-            'bd': 2
+            'relief': 'flat',
+            'bd': 0,
+            'cursor': 'hand2'
         }
         
-        self.btn_registrar = tk.Button(
-            frame_botones,
-            text="📋 Registrar Paciente",
-            bg='#4CAF50',
-            fg='white',
-            command=self.abrir_registro,
-            **estilo_boton
+        self.btn_registrar = BotonRedondeado(
+            frame_botones, "📋  Registrar Paciente", self.abrir_registro, '#4CAF50', 170, 42
         )
         self.btn_registrar.pack(side='left', padx=3)
         
-        self.btn_buscar = tk.Button(
-            frame_botones,
-            text="🔍 Buscar Paciente",
-            bg='#2196F3',
-            fg='white',
-            command=self.abrir_busqueda,
-            **estilo_boton
+        self.btn_buscar = BotonRedondeado(
+            frame_botones, "🔍  Buscar Paciente", self.abrir_busqueda, '#2196F3', 155, 42
         )
         self.btn_buscar.pack(side='left', padx=3)
         
-        self.btn_modificar = tk.Button(
-            frame_botones,
-            text="✏️ Modificar Paciente",
-            bg='#FF9800',
-            fg='white',
-            command=self.abrir_modificacion,
-            **estilo_boton
+        self.btn_modificar = BotonRedondeado(
+            frame_botones, "✏️  Modificar Paciente", self.abrir_modificacion, '#FF9800', 190, 42
         )
         self.btn_modificar.pack(side='left', padx=3)
         
-        self.btn_baja = tk.Button(
-            frame_botones,
-            text="🗑️ Dar de Baja",
-            bg='#f44336',
-            fg='white',
-            command=self.dar_baja_paciente,
-            **estilo_boton
+        self.btn_baja = BotonRedondeado(
+            frame_botones, "🗑️  Dar de Baja", self.dar_baja_paciente, '#f44336', 150, 42
         )
         self.btn_baja.pack(side='left', padx=3)
         
         # --- SEPARADOR ---
-        tk.Frame(frame_botones, width=10, bg='#f0f0f0').pack(side='left')
+        tk.Frame(frame_botones, width=10, bg=COLOR_FONDO).pack(side='left')
         
-        self.btn_ver_activos = tk.Button(
-            frame_botones,
-            text="📊 Ver Activos",
-            bg='#607D8B',
-            fg='white',
-            command=lambda: self.ver_pacientes(activos=True),
-            **estilo_boton
+        self.btn_ver_activos = BotonRedondeado(
+            frame_botones, "📊  Ver Activos", lambda: self.ver_pacientes(activos=True), '#607D8B', 130, 42
         )
         self.btn_ver_activos.pack(side='left', padx=3)
         
-        self.btn_ver_inactivos = tk.Button(
-            frame_botones,
-            text="📋 Ver Inactivos",
-            bg='#9E9E9E',
-            fg='white',
-            command=lambda: self.ver_pacientes(activos=False),
-            **estilo_boton
+        self.btn_ver_inactivos = BotonRedondeado(
+            frame_botones, "📋  Ver Inactivos", lambda: self.ver_pacientes(activos=False), '#9E9E9E', 140, 42
         )
         self.btn_ver_inactivos.pack(side='left', padx=3)
         
-        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        tk.Frame(self.frame_principal, height=1, bg='#D8E2EA').pack(fill='x', pady=10)
         
         # ---------- LABEL DE RESULTADOS ----------
         self.label_resultados = tk.Label(
             self.frame_principal,
             text="Seleccione una acción para comenzar",
-            font=('Arial', 11, 'italic'),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 10, 'italic'),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         )
         self.label_resultados.pack(pady=5)
         
         # ---------- TABLA DE PACIENTES ----------
-        frame_tabla = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_tabla = tk.Frame(self.frame_principal, bg=COLOR_FONDO)
         frame_tabla.pack(fill='both', expand=True, pady=10)
         
         self.tree = ttk.Treeview(
@@ -431,6 +566,9 @@ class AppPacientes:
             height=12,
             selectmode='browse'
         )
+        self.tree.configure(style='Patients.Treeview')
+        self.tree.tag_configure('par', background='#F2F7FA')
+        self.tree.tag_configure('impar', background='#FFFFFF')
         
         columnas = [
             ('ID', 'HC', 50, 'center'),
@@ -440,9 +578,12 @@ class AppPacientes:
             ('Teléfono', 'Teléfono', 120, 'center'),
             ('Estado', 'Estado', 80, 'center')
         ]
+        self.columnas = columnas
+        self.orden_columna = None
+        self.orden_ascendente = True
         
         for col, heading, width, anchor in columnas:
-            self.tree.heading(col, text=heading)
+            self.tree.heading(col, text=heading, command=lambda columna=col: self.ordenar_tabla(columna))
             self.tree.column(col, width=width, anchor=anchor)
         
         self.tree.pack(side='left', fill='both', expand=True)
@@ -458,9 +599,9 @@ class AppPacientes:
         self.label_estado = tk.Label(
             self.frame_principal,
             text="✅ OpenHIS-UNLaM",
-            font=('Arial', 9),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 9),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         )
         self.label_estado.pack(side='bottom', pady=5)
         
@@ -478,13 +619,39 @@ class AppPacientes:
         
         pacientes = listar_pacientes(activos=activos)
         
-        for p in pacientes:
+        for indice, p in enumerate(pacientes):
             # p = (id, dni, nombre, apellido, telefono, activo)
             estado = "✅ Activo" if p[5] == 1 else "🚫 Inactivo"
-            self.tree.insert('', 'end', values=(p[0], p[1], p[2], p[3], p[4] or '', estado))
+            etiqueta = 'par' if indice % 2 == 0 else 'impar'
+            self.tree.insert('', 'end', values=(p[0], p[1], p[2], p[3], p[4] or '', estado), tags=(etiqueta,))
         
         tipo = "activos" if activos else "inactivos"
         self.label_resultados.config(text=f"📊 Total de pacientes {tipo}: {len(pacientes)}")
+
+    def ordenar_tabla(self, columna):
+        """Ordena la tabla por la columna seleccionada y alterna ascendente/descendente."""
+        if self.orden_columna == columna:
+            self.orden_ascendente = not self.orden_ascendente
+        else:
+            self.orden_columna = columna
+            self.orden_ascendente = True
+
+        items = [(self.tree.set(item, columna), item) for item in self.tree.get_children('')]
+
+        def clave(valor):
+            texto = valor[0].strip()
+            return (0, int(texto)) if texto.isdigit() else (1, texto.lower())
+
+        items.sort(key=clave, reverse=not self.orden_ascendente)
+        for posicion, (_, item) in enumerate(items):
+            self.tree.move(item, '', posicion)
+            self.tree.item(item, tags=('par' if posicion % 2 == 0 else 'impar',))
+
+        for nombre, encabezado, _, _ in self.columnas:
+            indicador = ''
+            if nombre == columna:
+                indicador = '  ▲' if self.orden_ascendente else '  ▼'
+            self.tree.heading(nombre, text=encabezado + indicador)
     
     def on_doble_click(self, event):
         """Maneja el doble clic en la tabla"""
@@ -503,183 +670,302 @@ class AppPacientes:
             self.ver_detalle_paciente(paciente)
     
     def ver_detalle_paciente(self, paciente):
-        """Muestra el detalle completo de un paciente"""
+        """Muestra una ficha organizada con datos y actividad clínica."""
         ventana = tk.Toplevel(self.root)
-        ventana.title(f"Detalle - {paciente['nombre']} {paciente['apellido']}")
-        ventana.geometry("500x550")
-        ventana.configure(bg='#f0f0f0')
+        ventana.title(f"Ficha del paciente - {paciente['nombre']} {paciente['apellido']}")
+        ventana.geometry("820x650")
+        ventana.minsize(680, 540)
+        ventana.configure(bg=COLOR_FONDO)
         ventana.grab_set()
-        
+        ventana.resizable(True, True)
+
         estado = "✅ Activo" if paciente['activo'] == 1 else "🚫 Inactivo"
-        
         tk.Label(
             ventana,
-            text=f"👤 DATOS DEL PACIENTE",
-            font=('Arial', 14, 'bold'),
-            bg='#f0f0f0',
-            fg='#003366'
-        ).pack(pady=10)
-        
-        frame_detalle = tk.Frame(ventana, bg='#f0f0f0')
-        frame_detalle.pack(padx=30, pady=10, fill='both', expand=True)
-        
-        # Contar registros relacionados
-        total_signos = contar_signos_vitales_paciente(paciente['id'])
-        total_prescripciones = contar_prescripciones_paciente(paciente['id'])
-        
+            text=f"👤 {paciente['nombre']} {paciente['apellido']}",
+            font=('Segoe UI', 18, 'bold'), bg=COLOR_FONDO, fg=COLOR_TEXTO
+        ).pack(pady=(12, 2))
+        tk.Label(
+            ventana,
+            text=f"Historia Clínica N° {paciente['id']}   ·   DNI {paciente['dni']}   ·   {estado}",
+            font=('Segoe UI', 10, 'bold'), bg=COLOR_FONDO, fg=COLOR_SECUNDARIO
+        ).pack(pady=(0, 10))
+
+        notebook = ttk.Notebook(ventana)
+        notebook.pack(fill='both', expand=True, padx=20, pady=5)
+
+        datos_tab = tk.Frame(notebook, bg=COLOR_FONDO)
+        notebook.add(datos_tab, text='  Datos personales  ')
         detalles = [
-            ('🏥 Historia Clínica', paciente['id']),
-            ('📋 DNI', paciente['dni']),
-            ('👤 Nombre', paciente['nombre']),
-            ('👤 Apellido', paciente['apellido']),
-            ('📅 Fecha Nacimiento', paciente['fecha_nac']),
-            ('⚧️ Sexo', paciente['sexo']),
-            ('📞 Teléfono', paciente['telefono'] or 'No registrado'),
-            ('✉️ Email', paciente['email'] or 'No registrado'),
-            ('🏠 Domicilio', paciente['domicilio'] or 'No registrado'),
-            ('🏢 Obra Social', paciente['obra_social'] or 'No registrada'),
-            ('📅 Fecha Registro', paciente['fecha_registro']),
-            ('📊 Estado', estado),
-            ('❤️ Signos Vitales', f"{total_signos} registros"),
-            ('💊 Prescripciones', f"{total_prescripciones} prescripciones")
+            ('Fecha de nacimiento', paciente['fecha_nac']), ('Sexo', paciente['sexo']),
+            ('Teléfono', paciente['telefono'] or 'No registrado'),
+            ('Email', paciente['email'] or 'No registrado'),
+            ('Domicilio', paciente['domicilio'] or 'No registrado'),
+            ('Obra social', paciente['obra_social'] or 'No registrada'),
+            ('Fecha de registro', paciente['fecha_registro'])
         ]
-        
-        for label, value in detalles:
-            frame = tk.Frame(frame_detalle, bg='#f0f0f0')
-            frame.pack(fill='x', pady=2)
-            tk.Label(
-                frame,
-                text=f"{label}:",
-                width=20,
-                anchor='w',
-                bg='#f0f0f0',
-                font=('Arial', 10, 'bold')
-            ).pack(side='left')
-            tk.Label(
-                frame,
-                text=str(value),
-                anchor='w',
-                bg='#f0f0f0',
-                font=('Arial', 10),
-                wraplength=300,
-                justify='left'
-            ).pack(side='left', padx=5)
-        
-        frame_botones = tk.Frame(ventana, bg='#f0f0f0')
-        frame_botones.pack(pady=15)
-        
-        # Botones según estado
+        for fila, (label, valor) in enumerate(detalles):
+            tk.Label(datos_tab, text=label, font=('Segoe UI', 10, 'bold'),
+                     bg=COLOR_FONDO, fg=COLOR_SECUNDARIO, anchor='w').grid(
+                         row=fila, column=0, sticky='w', padx=30, pady=7)
+            tk.Label(datos_tab, text=str(valor), font=('Segoe UI', 10),
+                     bg=COLOR_FONDO, fg=COLOR_TEXTO, anchor='w').grid(
+                         row=fila, column=1, sticky='w', padx=20, pady=7)
+        datos_tab.columnconfigure(1, weight=1)
+
+        prescripciones_tab = tk.Frame(notebook, bg=COLOR_FONDO)
+        notebook.add(prescripciones_tab, text='  Prescripciones  ')
+        prescripciones_tree = ttk.Treeview(
+            prescripciones_tab,
+            columns=('Fecha', 'Fármaco', 'Dosis', 'Vía', 'Frecuencia', 'Vencimiento', 'Estado'),
+            show='headings', style='Patients.Treeview', selectmode='browse'
+        )
+        for columna, ancho in (
+            ('Fecha', 130), ('Fármaco', 190), ('Dosis', 100), ('Vía', 100),
+            ('Frecuencia', 120), ('Vencimiento', 110), ('Estado', 90)
+        ):
+            prescripciones_tree.heading(columna, text=columna)
+            prescripciones_tree.column(columna, width=ancho, anchor='w')
+        prescripciones_tree.pack(fill='both', expand=True, padx=10, pady=10)
+        prescripciones_scroll = ttk.Scrollbar(prescripciones_tab, orient='vertical', command=prescripciones_tree.yview)
+        prescripciones_scroll.pack(side='right', fill='y')
+        prescripciones_tree.configure(yscrollcommand=prescripciones_scroll.set)
+        for indice, registro in enumerate(listar_prescripciones_paciente(paciente['id'])):
+            estado_prescripcion = 'Activa' if registro[6] == 1 else 'Anulada'
+            prescripciones_tree.insert('', 'end', values=(
+                registro[0] or '-', registro[1] or 'Sin fármaco', registro[2] or '-',
+                registro[3] or '-', registro[4] or '-', registro[5] or '-', estado_prescripcion
+            ), tags=('par' if indice % 2 == 0 else 'impar',))
+
+        signos_tab = tk.Frame(notebook, bg=COLOR_FONDO)
+        notebook.add(signos_tab, text='  Signos vitales  ')
+        signos_tree = ttk.Treeview(
+            signos_tab,
+            columns=('Fecha', 'Presión', 'FC', 'Temp.', 'Sat. O2', 'Motivo', 'Estado'),
+            show='headings', style='Patients.Treeview', selectmode='browse'
+        )
+        for columna, ancho in (
+            ('Fecha', 140), ('Presión', 100), ('FC', 70), ('Temp.', 80),
+            ('Sat. O2', 80), ('Motivo', 220), ('Estado', 90)
+        ):
+            signos_tree.heading(columna, text=columna)
+            signos_tree.column(columna, width=ancho, anchor='w')
+        signos_tree.pack(fill='both', expand=True, padx=10, pady=10)
+        signos_scroll = ttk.Scrollbar(signos_tab, orient='vertical', command=signos_tree.yview)
+        signos_scroll.pack(side='right', fill='y')
+        signos_tree.configure(yscrollcommand=signos_scroll.set)
+        for indice, registro in enumerate(listar_signos_vitales_paciente(paciente['id'])):
+            presion = f'{registro[1]}/{registro[2]}' if registro[1] and registro[2] else '-'
+            estado_signo = 'Activo' if registro[7] == 1 else 'Anulado'
+            signos_tree.insert('', 'end', values=(
+                registro[0] or '-', presion, registro[3] or '-', registro[4] or '-',
+                registro[5] or '-', registro[6] or '-', estado_signo
+            ), tags=('par' if indice % 2 == 0 else 'impar',))
+
+        frame_botones = tk.Frame(ventana, bg=COLOR_FONDO)
+        frame_botones.pack(pady=12)
         if paciente['activo'] == 1:
-            tk.Button(
-                frame_botones,
-                text="✏️ Modificar",
-                bg='#FF9800',
-                fg='white',
-                font=('Arial', 10, 'bold'),
-                padx=15,
-                pady=5,
-                command=lambda: [ventana.destroy(), self.abrir_modificacion_con_id(paciente['id'])]
+            BotonRedondeado(
+                frame_botones, "✏️  Modificar",
+                lambda: [ventana.destroy(), self.abrir_modificacion_con_id(paciente['id'])],
+                '#FF9800', 135, 40
             ).pack(side='left', padx=5)
-            
-            tk.Button(
-                frame_botones,
-                text="🗑️ Dar de Baja",
-                bg='#f44336',
-                fg='white',
-                font=('Arial', 10, 'bold'),
-                padx=15,
-                pady=5,
-                command=lambda: [ventana.destroy(), self.baja_con_id(paciente['id'])]
+            BotonRedondeado(
+                frame_botones, "🗑️  Dar de Baja",
+                lambda: [ventana.destroy(), self.baja_con_id(paciente['id'])],
+                '#f44336', 150, 40
             ).pack(side='left', padx=5)
         else:
-            tk.Button(
-                frame_botones,
-                text="♻️ Reactivar",
-                bg='#4CAF50',
-                fg='white',
-                font=('Arial', 10, 'bold'),
-                padx=15,
-                pady=5,
-                command=lambda: [ventana.destroy(), self.reactivar_con_id(paciente['id'])]
+            BotonRedondeado(
+                frame_botones, "♻️  Reactivar",
+                lambda: [ventana.destroy(), self.reactivar_con_id(paciente['id'])],
+                '#4CAF50', 135, 40
             ).pack(side='left', padx=5)
-        
-        tk.Button(
-            frame_botones,
-            text="❌ Cerrar",
-            bg='#9E9E9E',
-            fg='white',
-            font=('Arial', 10, 'bold'),
-            padx=15,
-            pady=5,
-            command=ventana.destroy
-        ).pack(side='left', padx=5)
+        BotonRedondeado(frame_botones, "✕  Cerrar", ventana.destroy, '#9E9E9E', 110, 40).pack(side='left', padx=5)
     
     # ---------- REGISTRAR PACIENTE ----------
     def abrir_registro(self):
         """Abre ventana para registrar nuevo paciente"""
         ventana = tk.Toplevel(self.root)
         ventana.title("Registrar Nuevo Paciente")
-        ventana.geometry("550x620")
-        ventana.configure(bg='#f0f0f0')
+        ventana.geometry("550x540")
+        ventana.configure(bg=COLOR_FONDO)
         ventana.grab_set()
         ventana.resizable(False, False)
         
         tk.Label(
             ventana,
             text="📋 REGISTRO DE PACIENTE",
-            font=('Arial', 14, 'bold'),
-            bg='#f0f0f0',
-            fg='#003366'
-        ).pack(pady=10)
+            font=('Segoe UI', 16, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_TEXTO
+        ).pack(pady=(8, 4))
         
         tk.Label(
             ventana,
             text="Los campos con * son obligatorios",
-            font=('Arial', 9),
-            bg='#f0f0f0',
-            fg='#666666'
-        ).pack(pady=2)
+            font=('Segoe UI', 9, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
+        ).pack(pady=(0, 5))
         
-        frame_campos = tk.Frame(ventana, bg='#f0f0f0')
-        frame_campos.pack(padx=30, pady=10)
+        frame_campos = tk.Frame(ventana, bg=COLOR_FONDO)
+        frame_campos.pack(padx=30, pady=5)
         
         campos = [
-            ('DNI *', 'dni', True),
-            ('Nombre *', 'nombre', True),
-            ('Apellido *', 'apellido', True),
-            ('Fecha Nac. (YYYY-MM-DD) *', 'fecha_nac', True),
-            ('Sexo (M/F) *', 'sexo', True),
+            ('DNI', 'dni', True),
+            ('Nombre', 'nombre', True),
+            ('Apellido', 'apellido', True),
+            ('Fecha de nacimiento', 'fecha_nac', True),
+            ('Sexo', 'sexo', True),
             ('Teléfono', 'telefono', False),
             ('Email', 'email', False),
             ('Domicilio', 'domicilio', False),
             ('Obra Social', 'obra_social', False)
         ]
+
+        obras_sociales = [
+            'OSDE', 'Swiss Medical', 'Galeno', 'Medife', 'Sancor Salud',
+            'IOMA', 'PAMI', 'Particular'
+        ]
+
+        def crear_combo_busqueda(parent, valores):
+            """Crea un combo editable que filtra sus opciones al escribir."""
+            combo = ttk.Combobox(parent, width=26, font=('Segoe UI', 10), state='normal')
+            valores = tuple(valores)
+            combo['values'] = valores
+
+            def restaurar_opciones(event=None):
+                combo['values'] = valores
+
+            def filtrar(event):
+                if event.keysym in ('Up', 'Down', 'Left', 'Right', 'Return', 'Escape', 'Tab'):
+                    return
+                texto = combo.get().lower()
+                coincidencias = [valor for valor in valores if texto in valor.lower()]
+                combo['values'] = coincidencias
+
+            combo.bind('<FocusIn>', restaurar_opciones)
+            combo.bind('<KeyRelease>', filtrar)
+            return combo
+
+        def formatear_fecha(event):
+            """Agrega guiones al escribir YYYYMMDD cuando no hay calendario."""
+            if event.keysym in ('Left', 'Right', 'Tab'):
+                return
+            texto = ''.join(caracter for caracter in event.widget.get() if caracter.isdigit())[:8]
+            formateado = texto
+            if len(texto) > 4:
+                formateado = f'{texto[:4]}-{texto[4:]}'
+            if len(texto) > 6:
+                formateado = f'{texto[:4]}-{texto[4:6]}-{texto[6:]}'
+            event.widget.delete(0, tk.END)
+            event.widget.insert(0, formateado)
+
+        sugerencias = {
+            'dni': 'Ej.: 36689468',
+            'nombre': 'Ej.: Juan',
+            'apellido': 'Ej.: Perez',
+            'fecha_nac': 'AAAA-MM-DD',
+            'telefono': 'Ej.: 1123456789',
+            'email': 'Ej.: nombre@correo.com',
+            'domicilio': 'Ej.: Calle 123'
+        }
+
+        def entrada_interna(entry):
+            return getattr(entry, 'entry', entry)
+
+        def agregar_sugerencia(entry, texto):
+            interno = entrada_interna(entry)
+            interno.insert(0, texto)
+            interno.config(fg='#91A0AC')
+
+            def enfocar(event):
+                if entry.get() == texto:
+                    entry.delete(0, tk.END)
+                    interno.config(fg=COLOR_TEXTO)
+
+            def desenfocar(event):
+                if not entry.get().strip():
+                    entry.insert(0, texto)
+                    interno.config(fg='#91A0AC')
+                else:
+                    interno.config(fg=COLOR_TEXTO)
+
+            def actualizar_color(event):
+                if entry.get() != texto:
+                    interno.config(fg=COLOR_TEXTO)
+
+            entry.bind('<FocusIn>', enfocar, '+')
+            entry.bind('<FocusOut>', desenfocar, '+')
+            entry.bind('<KeyRelease>', actualizar_color, '+')
+
+        validar_numerico = ventana.register(
+            lambda valor: valor == '' or valor.isdigit()
+        )
         
         self.entries = {}
         for label_text, key, obligatorio in campos:
-            frame = tk.Frame(frame_campos, bg='#f0f0f0')
-            frame.pack(fill='x', pady=3)
+            frame = tk.Frame(frame_campos, bg=COLOR_FONDO)
+            frame.pack(fill='x', pady=2)
             
-            texto = label_text + ' *' if obligatorio else label_text
+            texto = label_text + ' (*)' if obligatorio else label_text
             tk.Label(
                 frame,
                 text=texto,
                 width=22,
                 anchor='w',
-                bg='#f0f0f0',
-                font=('Arial', 10)
+                bg=COLOR_FONDO,
+                fg=COLOR_TEXTO,
+                font=('Segoe UI', 10, 'bold')
             ).pack(side='left')
             
-            entry = tk.Entry(frame, width=28, font=('Arial', 10))
+            if key == 'fecha_nac':
+                if DateEntry is not None:
+                    entry = DateEntry(
+                        frame,
+                        width=26,
+                        font=('Arial', 10),
+                        date_pattern='yyyy-mm-dd',
+                        locale='es_AR'
+                    )
+                    entry.delete(0, tk.END)
+                else:
+                    entry = EntradaRedondeada(frame)
+                    entry.bind('<KeyRelease>', formatear_fecha)
+            elif key == 'sexo':
+                entry = crear_combo_busqueda(frame, ('F', 'M'))
+            elif key == 'obra_social':
+                entry = crear_combo_busqueda(frame, obras_sociales)
+            else:
+                entry = EntradaRedondeada(frame)
+            if key in sugerencias and (key != 'fecha_nac' or DateEntry is None):
+                agregar_sugerencia(entry, sugerencias[key])
+            if key in ('dni', 'telefono'):
+                entrada_interna(entry).configure(
+                    validate='key',
+                    validatecommand=(validar_numerico, '%P')
+                )
             entry.pack(side='right')
             self.entries[key] = entry
+
+        def obtener_valor(campo):
+            valor = self.entries[campo].get().strip()
+            return '' if valor == sugerencias.get(campo) else valor
         
         def guardar():
             obligatorios = ['dni', 'nombre', 'apellido', 'fecha_nac', 'sexo']
             for campo in obligatorios:
-                if not self.entries[campo].get().strip():
+                if not obtener_valor(campo):
                     messagebox.showerror("Error", f"El campo '{campo}' es obligatorio.")
                     return
+
+            fecha_nacimiento = obtener_valor('fecha_nac')
+            try:
+                datetime.strptime(fecha_nacimiento, '%Y-%m-%d')
+            except ValueError:
+                messagebox.showerror("Error", "La fecha debe tener el formato AAAA-MM-DD y ser válida.")
+                return
             
             sexo = self.entries['sexo'].get().strip().upper()
             if sexo not in ['M', 'F']:
@@ -687,14 +973,14 @@ class AppPacientes:
                 return
             
             datos = {
-                'dni': self.entries['dni'].get().strip(),
-                'nombre': self.entries['nombre'].get().strip(),
-                'apellido': self.entries['apellido'].get().strip(),
-                'fecha_nac': self.entries['fecha_nac'].get().strip(),
+                'dni': obtener_valor('dni'),
+                'nombre': obtener_valor('nombre'),
+                'apellido': obtener_valor('apellido'),
+                'fecha_nac': fecha_nacimiento,
                 'sexo': sexo,
-                'telefono': self.entries['telefono'].get().strip(),
-                'email': self.entries['email'].get().strip(),
-                'domicilio': self.entries['domicilio'].get().strip(),
+                'telefono': obtener_valor('telefono'),
+                'email': obtener_valor('email'),
+                'domicilio': obtener_valor('domicilio'),
                 'obra_social': self.entries['obra_social'].get().strip()
             }
             
@@ -706,29 +992,25 @@ class AppPacientes:
             else:
                 messagebox.showerror("Error", f"❌ {info}")
         
-        frame_botones = tk.Frame(ventana, bg='#f0f0f0')
-        frame_botones.pack(pady=20)
+        frame_botones = tk.Frame(ventana, bg=COLOR_FONDO)
+        frame_botones.pack(pady=12)
         
-        tk.Button(
+        BotonRedondeado(
             frame_botones,
-            text="💾 Guardar",
-            bg='#4CAF50',
-            fg='white',
-            font=('Arial', 11, 'bold'),
-            padx=25,
-            pady=8,
-            command=guardar
+            text="💾  Guardar",
+            color='#4CAF50',
+            command=guardar,
+            width=140,
+            height=46
         ).pack(side='left', padx=10)
-        
-        tk.Button(
+
+        BotonRedondeado(
             frame_botones,
-            text="❌ Cancelar",
-            bg='#f44336',
-            fg='white',
-            font=('Arial', 11, 'bold'),
-            padx=25,
-            pady=8,
-            command=ventana.destroy
+            text="✕  Cancelar",
+            color='#F44336',
+            command=ventana.destroy,
+            width=140,
+            height=46
         ).pack(side='left', padx=10)
     
     # ---------- BUSCAR PACIENTE ----------
@@ -736,46 +1018,122 @@ class AppPacientes:
         """Abre ventana para buscar paciente por DNI"""
         ventana = tk.Toplevel(self.root)
         ventana.title("Buscar Paciente")
-        ventana.geometry("500x450")
-        ventana.configure(bg='#f0f0f0')
+        ventana.geometry("600x600")
+        ventana.minsize(500, 520)
+        ventana.configure(bg=COLOR_FONDO)
         ventana.grab_set()
-        ventana.resizable(False, False)
+        ventana.resizable(True, True)
         
         tk.Label(
             ventana,
             text="🔍 BUSCAR PACIENTE POR DNI",
-            font=('Arial', 14, 'bold'),
-            bg='#f0f0f0',
-            fg='#003366'
+            font=('Segoe UI', 16, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_TEXTO
         ).pack(pady=15)
         
-        frame_busqueda = tk.Frame(ventana, bg='#f0f0f0')
+        frame_busqueda = tk.Frame(ventana, bg=COLOR_FONDO)
         frame_busqueda.pack(pady=10)
         
         tk.Label(
             frame_busqueda,
             text="DNI:",
-            font=('Arial', 12, 'bold'),
-            bg='#f0f0f0'
+            font=('Segoe UI', 11, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_TEXTO
         ).pack(side='left', padx=10)
         
-        entry_dni = tk.Entry(frame_busqueda, font=('Arial', 12), width=20)
+        entry_dni = EntradaRedondeada(frame_busqueda, width=185, height=32)
         entry_dni.pack(side='left', padx=10)
         entry_dni.focus()
+
+        frame_sugerencias = tk.Frame(ventana, bg=COLOR_FONDO)
+        frame_sugerencias.pack(fill='x', padx=80, pady=(0, 2))
+
+        lista_sugerencias = tk.Listbox(
+            frame_sugerencias,
+            height=4,
+            font=('Segoe UI', 10),
+            bg='white',
+            fg=COLOR_TEXTO,
+            selectbackground='#B8D8E8',
+            selectforeground=COLOR_TEXTO,
+            relief='flat',
+            highlightthickness=1,
+            highlightbackground='#C7D2DA'
+        )
+        lista_sugerencias.pack_forget()
+        coincidencias = []
         
-        frame_resultado = tk.Frame(ventana, bg='#f0f0f0')
+        frame_resultado = tk.Frame(ventana, bg=COLOR_FONDO)
         frame_resultado.pack(pady=10, fill='both', expand=True, padx=20)
         
         label_datos = tk.Label(
             frame_resultado,
             text="Ingrese un DNI y presione Buscar",
-            font=('Arial', 10),
-            bg='#f0f0f0',
-            fg='#666666',
-            justify='left'
+            font=('Segoe UI', 10),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO,
+            justify='left',
+            anchor='nw',
+            wraplength=520
         )
         label_datos.pack(pady=5)
+
+        def ajustar_resultado(event=None):
+            label_datos.config(wraplength=max(300, ventana.winfo_width() - 80))
+
+        ventana.bind('<Configure>', ajustar_resultado)
+
+        def mostrar_resultado(resultado):
+            estado = "✅ Activo" if resultado['activo'] == 1 else "🚫 Inactivo"
+            texto = (
+                f"🏥 HISTORIA CLÍNICA: {resultado['id']}\n"
+                f"📋 DNI: {resultado['dni']}\n"
+                f"👤 Nombre: {resultado['nombre']} {resultado['apellido']}\n"
+                f"📅 Fecha Nac.: {resultado['fecha_nac']}\n"
+                f"⚧️ Sexo: {resultado['sexo']}\n"
+                f"📞 Teléfono: {resultado['telefono'] or 'No registrado'}\n"
+                f"✉️ Email: {resultado['email'] or 'No registrado'}\n"
+                f"🏠 Domicilio: {resultado['domicilio'] or 'No registrado'}\n"
+                f"🏢 Obra Social: {resultado['obra_social'] or 'No registrada'}\n"
+                f"📅 Registro: {resultado['fecha_registro']}\n"
+                f"📊 Estado: {estado}"
+            )
+            label_datos.config(text=texto, fg=COLOR_TEXTO)
         
+        def actualizar_sugerencias(event=None):
+            texto = entry_dni.get().strip()
+            lista_sugerencias.delete(0, tk.END)
+            coincidencias.clear()
+            lista_sugerencias.pack_forget()
+            if not texto:
+                label_datos.config(text="Ingrese un DNI y presione Buscar", fg=COLOR_SECUNDARIO)
+                return
+
+            coincidencias.extend(buscar_pacientes_por_dni(texto))
+            for paciente_id, dni, nombre, apellido, activo in coincidencias:
+                estado = 'Activo' if activo == 1 else 'Inactivo'
+                lista_sugerencias.insert(tk.END, f"{dni}  ·  {nombre} {apellido}  ({estado})")
+
+            if coincidencias:
+                lista_sugerencias.pack(fill='x')
+
+            if not coincidencias:
+                label_datos.config(text="No hay pacientes que coincidan con ese DNI.", fg='#B45309')
+
+        def seleccionar_sugerencia(event=None):
+            seleccion = lista_sugerencias.curselection()
+            if not seleccion:
+                return
+            paciente = coincidencias[seleccion[0]]
+            entry_dni.delete(0, tk.END)
+            entry_dni.insert(0, paciente[1])
+            lista_sugerencias.delete(0, tk.END)
+            resultado = buscar_paciente(paciente[1])
+            if resultado:
+                mostrar_resultado(resultado)
+
         def buscar():
             dni = entry_dni.get().strip()
             if not dni:
@@ -784,49 +1142,25 @@ class AppPacientes:
             
             resultado = buscar_paciente(dni)
             if resultado:
-                estado = "✅ Activo" if resultado['activo'] == 1 else "🚫 Inactivo"
-                texto = (
-                    f"🏥 HISTORIA CLÍNICA: {resultado['id']}\n"
-                    f"📋 DNI: {resultado['dni']}\n"
-                    f"👤 Nombre: {resultado['nombre']} {resultado['apellido']}\n"
-                    f"📅 Fecha Nac.: {resultado['fecha_nac']}\n"
-                    f"⚧️ Sexo: {resultado['sexo']}\n"
-                    f"📞 Teléfono: {resultado['telefono'] or 'No registrado'}\n"
-                    f"✉️ Email: {resultado['email'] or 'No registrado'}\n"
-                    f"🏠 Domicilio: {resultado['domicilio'] or 'No registrado'}\n"
-                    f"🏢 Obra Social: {resultado['obra_social'] or 'No registrada'}\n"
-                    f"📅 Registro: {resultado['fecha_registro']}\n"
-                    f"📊 Estado: {estado}"
-                )
-                label_datos.config(text=texto, fg='#333333')
+                lista_sugerencias.delete(0, tk.END)
+                mostrar_resultado(resultado)
             else:
                 label_datos.config(text="❌ Paciente no encontrado.", fg='#f44336')
         
+        entry_dni.bind('<KeyRelease>', actualizar_sugerencias)
         entry_dni.bind('<Return>', lambda e: buscar())
+        lista_sugerencias.bind('<Double-1>', seleccionar_sugerencia)
+        lista_sugerencias.bind('<Return>', seleccionar_sugerencia)
         
         frame_botones = tk.Frame(ventana, bg='#f0f0f0')
         frame_botones.pack(pady=10)
         
-        tk.Button(
-            frame_botones,
-            text="🔍 Buscar",
-            bg='#2196F3',
-            fg='white',
-            font=('Arial', 11, 'bold'),
-            padx=20,
-            pady=8,
-            command=buscar
+        BotonRedondeado(
+            frame_botones, "🔍  Buscar", buscar, '#2196F3', 125, 42
         ).pack(side='left', padx=10)
-        
-        tk.Button(
-            frame_botones,
-            text="❌ Cerrar",
-            bg='#f44336',
-            fg='white',
-            font=('Arial', 11, 'bold'),
-            padx=20,
-            pady=8,
-            command=ventana.destroy
+
+        BotonRedondeado(
+            frame_botones, "✕  Cerrar", ventana.destroy, '#f44336', 125, 42
         ).pack(side='left', padx=10)
     
     # ---------- MODIFICAR PACIENTE ----------
@@ -834,41 +1168,52 @@ class AppPacientes:
         """Abre ventana para modificar un paciente (buscándolo por DNI)"""
         ventana = tk.Toplevel(self.root)
         ventana.title("Modificar Paciente")
-        ventana.geometry("550x450")
-        ventana.configure(bg='#f0f0f0')
+        ventana.geometry("600x560")
+        ventana.minsize(520, 500)
+        ventana.configure(bg=COLOR_FONDO)
         ventana.grab_set()
-        ventana.resizable(False, False)
+        ventana.resizable(True, True)
         
         tk.Label(
             ventana,
             text="✏️ MODIFICAR PACIENTE",
-            font=('Arial', 14, 'bold'),
-            bg='#f0f0f0',
+            font=('Segoe UI', 16, 'bold'),
+            bg=COLOR_FONDO,
             fg='#FF9800'
         ).pack(pady=10)
         
-        frame_buscar = tk.Frame(ventana, bg='#f0f0f0')
+        frame_buscar = tk.Frame(ventana, bg=COLOR_FONDO)
         frame_buscar.pack(pady=10)
         
         tk.Label(
             frame_buscar,
             text="DNI del paciente:",
-            font=('Arial', 11),
-            bg='#f0f0f0'
+            font=('Segoe UI', 11, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_TEXTO
         ).pack(side='left', padx=10)
         
-        entry_dni = tk.Entry(frame_buscar, font=('Arial', 11), width=20)
+        entry_dni = EntradaRedondeada(frame_buscar, width=185, height=32)
         entry_dni.pack(side='left', padx=10)
         entry_dni.focus()
+
+        frame_sugerencias = tk.Frame(ventana, bg=COLOR_FONDO)
+        frame_sugerencias.pack(fill='x', padx=80, pady=(0, 2))
+        lista_sugerencias = tk.Listbox(
+            frame_sugerencias, height=4, font=('Segoe UI', 10), bg='white',
+            fg=COLOR_TEXTO, selectbackground='#B8D8E8', selectforeground=COLOR_TEXTO,
+            relief='flat', highlightthickness=1, highlightbackground='#C7D2DA'
+        )
+        coincidencias = []
         
-        frame_campos = tk.Frame(ventana, bg='#f0f0f0')
-        frame_campos.pack(pady=10, padx=30, fill='both', expand=True)
+        frame_campos = tk.Frame(ventana, bg=COLOR_FONDO)
+        frame_campos.pack(pady=8, padx=30, fill='x')
         
         label_nombre = tk.Label(
             frame_campos,
             text="Ingrese un DNI y presione Buscar",
-            font=('Arial', 11, 'bold'),
-            bg='#f0f0f0',
+            font=('Segoe UI', 11, 'bold'),
+            bg=COLOR_FONDO,
             fg='#003366'
         )
         label_nombre.pack(pady=5)
@@ -901,9 +1246,25 @@ class AppPacientes:
             entries_mod[key] = entry
         
         paciente_id_actual = None
+
+        def cargar_paciente(resultado):
+            nonlocal paciente_id_actual
+            paciente_id_actual = resultado['id']
+            label_nombre.config(
+                text=f"Paciente: {resultado['nombre']} {resultado['apellido']} (HC: {resultado['id']})",
+                fg='#003366'
+            )
+            entries_mod['telefono'].delete(0, tk.END)
+            entries_mod['telefono'].insert(0, resultado['telefono'])
+            entries_mod['email'].delete(0, tk.END)
+            entries_mod['email'].insert(0, resultado['email'])
+            entries_mod['domicilio'].delete(0, tk.END)
+            entries_mod['domicilio'].insert(0, resultado['domicilio'])
+            entries_mod['obra_social'].delete(0, tk.END)
+            entries_mod['obra_social'].insert(0, resultado['obra_social'])
+            frame_entries.pack(pady=10)
         
         def buscar_modificar():
-            nonlocal paciente_id_actual
             dni = entry_dni.get().strip()
             if not dni:
                 messagebox.showerror("Error", "Ingrese un DNI.")
@@ -911,35 +1272,40 @@ class AppPacientes:
             
             resultado = buscar_paciente(dni)
             if resultado:
-                paciente_id_actual = resultado['id']
-                label_nombre.config(
-                    text=f"Paciente: {resultado['nombre']} {resultado['apellido']} (HC: {resultado['id']})",
-                    fg='#003366'
-                )
-                entries_mod['telefono'].delete(0, tk.END)
-                entries_mod['telefono'].insert(0, resultado['telefono'])
-                entries_mod['email'].delete(0, tk.END)
-                entries_mod['email'].insert(0, resultado['email'])
-                entries_mod['domicilio'].delete(0, tk.END)
-                entries_mod['domicilio'].insert(0, resultado['domicilio'])
-                entries_mod['obra_social'].delete(0, tk.END)
-                entries_mod['obra_social'].insert(0, resultado['obra_social'])
-                frame_entries.pack(pady=10)
+                cargar_paciente(resultado)
             else:
                 messagebox.showerror("Error", "Paciente no encontrado.")
+
+        def actualizar_sugerencias(event=None):
+            texto = entry_dni.get().strip()
+            lista_sugerencias.delete(0, tk.END)
+            coincidencias.clear()
+            lista_sugerencias.pack_forget()
+            if not texto:
+                return
+            coincidencias.extend(buscar_pacientes_por_dni(texto))
+            for _, dni, nombre, apellido, activo in coincidencias:
+                estado = 'Activo' if activo == 1 else 'Inactivo'
+                lista_sugerencias.insert(tk.END, f"{dni}  ·  {nombre} {apellido}  ({estado})")
+            if coincidencias:
+                lista_sugerencias.pack(fill='x')
+
+        def seleccionar_sugerencia(event=None):
+            seleccion = lista_sugerencias.curselection()
+            if not seleccion:
+                return
+            dni = coincidencias[seleccion[0]][1]
+            entry_dni.delete(0, tk.END)
+            entry_dni.insert(0, dni)
+            lista_sugerencias.pack_forget()
+            resultado = buscar_paciente(dni)
+            if resultado:
+                cargar_paciente(resultado)
         
+        entry_dni.bind('<KeyRelease>', actualizar_sugerencias)
         entry_dni.bind('<Return>', lambda e: buscar_modificar())
-        
-        tk.Button(
-            ventana,
-            text="🔍 Buscar",
-            bg='#2196F3',
-            fg='white',
-            font=('Arial', 10, 'bold'),
-            padx=15,
-            pady=5,
-            command=buscar_modificar
-        ).pack(pady=5)
+        lista_sugerencias.bind('<Double-1>', seleccionar_sugerencia)
+        lista_sugerencias.bind('<Return>', seleccionar_sugerencia)
         
         def guardar_modificacion():
             nonlocal paciente_id_actual
@@ -962,29 +1328,15 @@ class AppPacientes:
             else:
                 messagebox.showerror("Error", f"❌ {mensaje}")
         
-        frame_botones = tk.Frame(ventana, bg='#f0f0f0')
+        frame_botones = tk.Frame(ventana, bg=COLOR_FONDO)
         frame_botones.pack(pady=15)
         
-        tk.Button(
-            frame_botones,
-            text="💾 Guardar Cambios",
-            bg='#FF9800',
-            fg='white',
-            font=('Arial', 11, 'bold'),
-            padx=20,
-            pady=8,
-            command=guardar_modificacion
+        BotonRedondeado(
+            frame_botones, "💾  Guardar Cambios", guardar_modificacion, '#FF9800', 175, 42
         ).pack(side='left', padx=10)
-        
-        tk.Button(
-            frame_botones,
-            text="❌ Cancelar",
-            bg='#f44336',
-            fg='white',
-            font=('Arial', 11, 'bold'),
-            padx=20,
-            pady=8,
-            command=ventana.destroy
+
+        BotonRedondeado(
+            frame_botones, "✕  Cancelar", ventana.destroy, '#f44336', 130, 42
         ).pack(side='left', padx=10)
     
     def abrir_modificacion_con_id(self, paciente_id):
@@ -1066,26 +1418,12 @@ class AppPacientes:
         frame_botones = tk.Frame(ventana, bg='#f0f0f0')
         frame_botones.pack(pady=15)
         
-        tk.Button(
-            frame_botones,
-            text="💾 Guardar Cambios",
-            bg='#FF9800',
-            fg='white',
-            font=('Arial', 11, 'bold'),
-            padx=20,
-            pady=8,
-            command=guardar
+        BotonRedondeado(
+            frame_botones, "💾  Guardar Cambios", guardar, '#FF9800', 175, 42
         ).pack(side='left', padx=10)
-        
-        tk.Button(
-            frame_botones,
-            text="❌ Cancelar",
-            bg='#f44336',
-            fg='white',
-            font=('Arial', 11, 'bold'),
-            padx=20,
-            pady=8,
-            command=ventana.destroy
+
+        BotonRedondeado(
+            frame_botones, "✕  Cancelar", ventana.destroy, '#f44336', 130, 42
         ).pack(side='left', padx=10)
     
     # ---------- BAJA LÓGICA DE PACIENTE ----------
@@ -1093,43 +1431,52 @@ class AppPacientes:
         """Abre ventana para dar de baja un paciente"""
         ventana = tk.Toplevel(self.root)
         ventana.title("Dar de Baja Paciente")
-        ventana.geometry("500x300")
-        ventana.configure(bg='#f0f0f0')
+        ventana.geometry("600x500")
+        ventana.minsize(520, 430)
+        ventana.configure(bg=COLOR_FONDO)
         ventana.grab_set()
-        ventana.resizable(False, False)
+        ventana.resizable(True, True)
         
         tk.Label(
             ventana,
             text="🗑️ DAR DE BAJA PACIENTE",
-            font=('Arial', 14, 'bold'),
-            bg='#f0f0f0',
+            font=('Segoe UI', 16, 'bold'),
+            bg=COLOR_FONDO,
             fg='#f44336'
         ).pack(pady=10)
         
         tk.Label(
             ventana,
-            text="ℹ️ La baja es LÓGICA: los datos se conservan\n"
-                 "para auditoría. Los signos vitales y prescripciones\n"
-                 "NO se eliminan.",
-            font=('Arial', 10),
-            bg='#f0f0f0',
-            fg='#666666',
+              text="La baja es lógica: los datos clínicos se conservan para auditoría.",
+              font=('Segoe UI', 10),
+              bg=COLOR_FONDO,
+              fg=COLOR_SECUNDARIO,
             justify='center'
         ).pack(pady=10)
         
-        frame = tk.Frame(ventana, bg='#f0f0f0')
-        frame.pack(pady=15)
+        frame = tk.Frame(ventana, bg=COLOR_FONDO)
+        frame.pack(pady=12)
         
         tk.Label(
             frame,
             text="DNI del paciente:",
-            font=('Arial', 11),
-            bg='#f0f0f0'
+            font=('Segoe UI', 11, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_TEXTO
         ).pack(side='left', padx=10)
         
-        entry_dni = tk.Entry(frame, font=('Arial', 11), width=20)
+        entry_dni = EntradaRedondeada(frame, width=185, height=32)
         entry_dni.pack(side='left', padx=10)
         entry_dni.focus()
+
+        frame_sugerencias = tk.Frame(ventana, bg=COLOR_FONDO)
+        frame_sugerencias.pack(fill='x', padx=80, pady=(0, 2))
+        lista_sugerencias = tk.Listbox(
+            frame_sugerencias, height=4, font=('Segoe UI', 10), bg='white',
+            fg=COLOR_TEXTO, selectbackground='#B8D8E8', selectforeground=COLOR_TEXTO,
+            relief='flat', highlightthickness=1, highlightbackground='#C7D2DA'
+        )
+        coincidencias = []
         
         def confirmar_baja():
             dni = entry_dni.get().strip()
@@ -1168,17 +1515,35 @@ class AppPacientes:
                 else:
                     messagebox.showerror("Error", f"❌ {mensaje}")
         
+        def actualizar_sugerencias(event=None):
+            texto = entry_dni.get().strip()
+            lista_sugerencias.delete(0, tk.END)
+            coincidencias.clear()
+            lista_sugerencias.pack_forget()
+            if not texto:
+                return
+            coincidencias.extend(buscar_pacientes_por_dni(texto))
+            for _, dni, nombre, apellido, activo in coincidencias:
+                estado = 'Activo' if activo == 1 else 'Inactivo'
+                lista_sugerencias.insert(tk.END, f"{dni}  ·  {nombre} {apellido}  ({estado})")
+            if coincidencias:
+                lista_sugerencias.pack(fill='x')
+
+        def seleccionar_sugerencia(event=None):
+            seleccion = lista_sugerencias.curselection()
+            if not seleccion:
+                return
+            entry_dni.delete(0, tk.END)
+            entry_dni.insert(0, coincidencias[seleccion[0]][1])
+            lista_sugerencias.pack_forget()
+
+        entry_dni.bind('<KeyRelease>', actualizar_sugerencias)
         entry_dni.bind('<Return>', lambda e: confirmar_baja())
+        lista_sugerencias.bind('<Double-1>', seleccionar_sugerencia)
+        lista_sugerencias.bind('<Return>', seleccionar_sugerencia)
         
-        tk.Button(
-            ventana,
-            text="🗑️ Confirmar Baja",
-            bg='#f44336',
-            fg='white',
-            font=('Arial', 11, 'bold'),
-            padx=25,
-            pady=8,
-            command=confirmar_baja
+        BotonRedondeado(
+            ventana, "🗑️  Confirmar Baja", confirmar_baja, '#f44336', 175, 42
         ).pack(pady=10)
     
     def baja_con_id(self, paciente_id):

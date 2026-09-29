@@ -27,6 +27,15 @@ import xml.etree.ElementTree as ET
 from xml.dom import minidom
 import os
 import webbrowser
+from pathlib import Path
+from ui_helpers import BotonRedondeado, EntradaCuadrada, combo_busqueda
+
+tk.Button = BotonRedondeado
+tk.Entry = EntradaCuadrada
+
+COLOR_FONDO = '#F4F7FB'
+COLOR_TEXTO = '#183B56'
+COLOR_SECUNDARIO = '#5C7184'
 
 # ================================================================
 # CONFIGURACIÓN
@@ -48,7 +57,8 @@ for carpeta in [CARPETA_RECETAS, CARPETA_REPORTES]:
 
 def conectar_bd():
     """Establece conexión con la base de datos Salud.db"""
-    return sqlite3.connect('BD/Salud.db')
+    ruta_bd = Path(__file__).resolve().parent / 'DB' / 'Salud.db'
+    return sqlite3.connect(ruta_bd)
 
 
 # -------------------- FUNCIONES DE CONSULTA --------------------
@@ -704,7 +714,18 @@ class AppPrescripciones:
         self.root = root
         self.root.title("OpenHIS-UNLaM - Prescripción de Medicamentos")
         self.root.geometry("1200x700")
-        self.root.configure(bg='#f0f0f0')
+        self.root.minsize(950, 580)
+        self.root.resizable(True, True)
+        self.root.configure(bg=COLOR_FONDO)
+
+        estilo = ttk.Style(self.root)
+        estilo.theme_use('clam')
+        estilo.configure('Prescriptions.Treeview', background='#FFFFFF', fieldbackground='#FFFFFF',
+                 foreground=COLOR_TEXTO, rowheight=32, font=('Segoe UI', 10))
+        estilo.configure('Prescriptions.Treeview.Heading', background='#1B4965', foreground='white',
+                 font=('Segoe UI', 10, 'bold'), padding=(8, 8))
+        estilo.map('Prescriptions.Treeview', background=[('selected', '#B8D8E8')],
+               foreground=[('selected', COLOR_TEXTO)])
         
         # Centrar
         self.root.update_idletasks()
@@ -715,38 +736,39 @@ class AppPrescripciones:
         self.root.geometry(f'{ancho}x{alto}+{x}+{y}')
         
         # Frame principal
-        self.frame_principal = tk.Frame(self.root, bg='#f0f0f0')
+        self.frame_principal = tk.Frame(self.root, bg=COLOR_FONDO)
         self.frame_principal.pack(fill='both', expand=True, padx=20, pady=20)
         
         # Título
         tk.Label(
             self.frame_principal,
             text="💊 PRESCRIPCIÓN DE MEDICAMENTOS",
-            font=('Arial', 18, 'bold'),
-            bg='#f0f0f0',
-            fg='#003366'
+            font=('Segoe UI', 18, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_TEXTO
         ).pack(pady=5)
         
         tk.Label(
             self.frame_principal,
             text="Hospital Universitario San Justo - Sistema de Receta Electrónica",
-            font=('Arial', 11),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 11),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         ).pack(pady=2)
         
-        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        tk.Frame(self.frame_principal, height=1, bg='#D8E2EA').pack(fill='x', pady=10)
         
         # Botones
-        frame_botones = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_botones = tk.Frame(self.frame_principal, bg=COLOR_FONDO)
         frame_botones.pack(pady=10)
         
         estilo_boton = {
-            'font': ('Arial', 10, 'bold'),
+            'font': ('Segoe UI', 10, 'bold'),
             'padx': 15,
             'pady': 8,
-            'relief': 'raised',
-            'bd': 2
+            'relief': 'flat',
+            'bd': 0,
+            'cursor': 'hand2'
         }
         
         tk.Button(frame_botones, text="💊 Nueva Prescripción", bg='#4CAF50',
@@ -755,7 +777,7 @@ class AppPrescripciones:
         tk.Button(frame_botones, text="🔍 Buscar por Paciente", bg='#2196F3',
                  fg='white', command=self.buscar_por_paciente, **estilo_boton).pack(side='left', padx=3)
         
-        tk.Frame(frame_botones, width=20, bg='#f0f0f0').pack(side='left')
+        tk.Frame(frame_botones, width=20, bg=COLOR_FONDO).pack(side='left')
         
         tk.Button(frame_botones, text="📊 Ver Activas", bg='#607D8B',
                  fg='white', command=lambda: self.ver_prescripciones(activas=True),
@@ -771,20 +793,20 @@ class AppPrescripciones:
                  fg='white', command=self.abrir_carpeta_recetas,
                  **estilo_boton).pack(side='left', padx=3)
         
-        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        tk.Frame(self.frame_principal, height=1, bg='#D8E2EA').pack(fill='x', pady=10)
         
         # Label resultados
         self.label_resultados = tk.Label(
             self.frame_principal,
             text="Seleccione una acción para comenzar",
-            font=('Arial', 11, 'italic'),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 10, 'italic'),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         )
         self.label_resultados.pack(pady=5)
         
         # Tabla
-        frame_tabla = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_tabla = tk.Frame(self.frame_principal, bg=COLOR_FONDO)
         frame_tabla.pack(fill='both', expand=True, pady=10)
         
         self.tree = ttk.Treeview(
@@ -795,6 +817,9 @@ class AppPrescripciones:
             height=12,
             selectmode='browse'
         )
+        self.tree.configure(style='Prescriptions.Treeview')
+        self.tree.tag_configure('par', background='#F2F7FA')
+        self.tree.tag_configure('impar', background='#FFFFFF')
         
         columnas = [
             ('ID', 'ID', 40, 'center'),
@@ -826,9 +851,9 @@ class AppPrescripciones:
         self.label_estado = tk.Label(
             self.frame_principal,
             text="✅ OpenHIS-UNLaM | 📁 Carpeta de recetas: ./recetas/",
-            font=('Arial', 9),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 9),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         )
         self.label_estado.pack(side='bottom', pady=5)
         
@@ -845,14 +870,15 @@ class AppPrescripciones:
         
         prescripciones = listar_prescripciones(activas=activas)
         
-        for p in prescripciones:
+        for indice, p in enumerate(prescripciones):
             estado = "✅ Activa" if p[14] == 1 else "🚫 Anulada"
+            etiqueta = 'par' if indice % 2 == 0 else 'impar'
             self.tree.insert('', 'end', values=(
                 p[0], p[1][:16] if p[1] else '',
                 p[2] or 'N/A', p[3] or 'N/A', p[4] or 'N/A',
                 p[5] or 'N/A', p[7] or '-', p[8] or '-', p[9] or '-',
                 p[13] or '-', estado
-            ))
+            ), tags=(etiqueta,))
         
         tipo = "activas" if activas else "anuladas"
         self.label_resultados.config(text=f"📊 Total de prescripciones {tipo}: {len(prescripciones)}")
@@ -1002,16 +1028,17 @@ class AppPrescripciones:
         """Abre ventana para nueva prescripción"""
         ventana = tk.Toplevel(self.root)
         ventana.title("Nueva Prescripción")
-        ventana.geometry("750x700")
-        ventana.configure(bg='#f0f0f0')
+        ventana.geometry("820x680")
+        ventana.minsize(700, 600)
+        ventana.configure(bg=COLOR_FONDO)
         ventana.grab_set()
-        ventana.resizable(False, False)
+        ventana.resizable(True, True)
         
         tk.Label(ventana, text="💊 NUEVA PRESCRIPCIÓN",
-                font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#003366').pack(pady=10)
+                font=('Segoe UI', 16, 'bold'), bg=COLOR_FONDO, fg=COLOR_TEXTO).pack(pady=(8, 4))
         
         tk.Label(ventana, text="Los campos con * son obligatorios",
-                font=('Arial', 9), bg='#f0f0f0', fg='#666666').pack(pady=2)
+                font=('Segoe UI', 9, 'bold'), bg=COLOR_FONDO, fg=COLOR_SECUNDARIO).pack(pady=(0, 5))
         
         # Obtener datos
         pacientes = obtener_pacientes_selector()
@@ -1037,61 +1064,51 @@ class AppPrescripciones:
         
         snomed = obtener_snomed_selector()
         
-        frame_campos = tk.Frame(ventana, bg='#f0f0f0')
+        frame_campos = tk.Frame(ventana, bg=COLOR_FONDO)
         frame_campos.pack(padx=30, pady=10, fill='both', expand=True)
         
         # Paciente
-        frame = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame = tk.Frame(frame_campos, bg=COLOR_FONDO)
         frame.pack(fill='x', pady=4)
         tk.Label(frame, text="Paciente *:", width=22, anchor='w',
-                bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
+                bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(side='left')
         valores_pacientes = [f"{p[0]} - {p[2]} {p[3]} (DNI: {p[1]})" for p in pacientes]
-        combo_paciente = ttk.Combobox(frame, width=40, font=('Arial', 10), state='readonly')
-        combo_paciente['values'] = valores_pacientes
-        combo_paciente.current(0)
+        combo_paciente = combo_busqueda(frame, valores_pacientes, 40)
         combo_paciente.pack(side='right')
         
         # Profesional
-        frame = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame = tk.Frame(frame_campos, bg=COLOR_FONDO)
         frame.pack(fill='x', pady=4)
         tk.Label(frame, text="Profesional *:", width=22, anchor='w',
-                bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
+                bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(side='left')
         valores_prof = [f"{p[0]} - {p[2]} {p[3]} ({p[4] or 'Sin especialidad'})" for p in profesionales]
-        combo_prof = ttk.Combobox(frame, width=40, font=('Arial', 10), state='readonly')
-        combo_prof['values'] = valores_prof
-        combo_prof.current(0)
+        combo_prof = combo_busqueda(frame, valores_prof, 40)
         combo_prof.pack(side='right')
         
         # Fármaco
-        frame = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame = tk.Frame(frame_campos, bg=COLOR_FONDO)
         frame.pack(fill='x', pady=4)
         tk.Label(frame, text="Fármaco *:", width=22, anchor='w',
-                bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
+                bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(side='left')
         valores_farmacos = [f"{f[0]} - {f[1]} {f[2]} ({f[3] or 'N/A'})" for f in farmacos]
-        combo_farmaco = ttk.Combobox(frame, width=40, font=('Arial', 10), state='readonly')
-        combo_farmaco['values'] = valores_farmacos
-        combo_farmaco.current(0)
+        combo_farmaco = combo_busqueda(frame, valores_farmacos, 40)
         combo_farmaco.pack(side='right')
         
         # Diagnóstico SNOMED
-        frame = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame = tk.Frame(frame_campos, bg=COLOR_FONDO)
         frame.pack(fill='x', pady=4)
         tk.Label(frame, text="Diagnóstico (SNOMED):", width=22, anchor='w',
-                bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
+                bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(side='left')
         if snomed:
             valores_snomed = [f"{s[0]} - {s[1]} {s[2]} ({s[3]})" for s in snomed]
-            combo_snomed = ttk.Combobox(frame, width=40, font=('Arial', 10), state='readonly')
-            combo_snomed['values'] = valores_snomed
-            combo_snomed.current(0)
+            combo_snomed = combo_busqueda(frame, valores_snomed, 40)
         else:
-            combo_snomed = ttk.Combobox(frame, width=40, font=('Arial', 10), state='readonly')
-            combo_snomed['values'] = ['No hay diagnósticos cargados']
-            combo_snomed.current(0)
+            combo_snomed = combo_busqueda(frame, ['No hay diagnósticos cargados'], 40)
         combo_snomed.pack(side='right')
         
         tk.Frame(frame_campos, height=2, bg='#cccccc').pack(fill='x', pady=8)
         
-        frame_detalles = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame_detalles = tk.Frame(frame_campos, bg=COLOR_FONDO)
         frame_detalles.pack(fill='x', pady=5)
         
         campos_texto = [
@@ -1105,19 +1122,22 @@ class AppPrescripciones:
         ]
         
         entries = {}
+        validar_entero = ventana.register(lambda valor: valor == '' or valor.isdigit())
         for label_text, key, row, col in campos_texto:
-            frame = tk.Frame(frame_detalles, bg='#f0f0f0')
+            frame = tk.Frame(frame_detalles, bg=COLOR_FONDO)
             frame.grid(row=row, column=col, sticky='ew', padx=10, pady=3)
             tk.Label(frame, text=label_text, width=22, anchor='w',
-                    bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
+                    bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(side='left')
             entry = tk.Entry(frame, width=20, font=('Arial', 10))
+            if key == 'cantidad':
+                entry.configure(validate='key', validatecommand=(validar_entero, '%P'))
             entry.pack(side='right')
             entries[key] = entry
         
-        frame = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame = tk.Frame(frame_campos, bg=COLOR_FONDO)
         frame.pack(fill='x', pady=5)
         tk.Label(frame, text="Indicaciones:", width=22, anchor='w',
-                bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
+                bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(side='left')
         text_indicaciones = tk.Text(frame, width=40, height=3, font=('Arial', 10))
         text_indicaciones.pack(side='right')
         
@@ -1168,7 +1188,7 @@ class AppPrescripciones:
             else:
                 messagebox.showerror("Error", f"❌ {info}")
         
-        frame_botones = tk.Frame(ventana, bg='#f0f0f0')
+        frame_botones = tk.Frame(ventana, bg=COLOR_FONDO)
         frame_botones.pack(pady=20)
         
         tk.Button(frame_botones, text="💾 Guardar Prescripción", bg='#4CAF50', fg='white',

@@ -7,10 +7,12 @@ import sqlite3
 import tkinter as tk
 from tkinter import messagebox, ttk
 from datetime import datetime
+from pathlib import Path
 
 # --- CONEXIÓN A LA BASE DE DATOS ---
 def conectar_bd():
-    return sqlite3.connect('BD/Salud.db')
+    ruta_bd = Path(__file__).resolve().parent / 'DB' / 'Salud.db'
+    return sqlite3.connect(ruta_bd)
 
 # --- HU-01: REGISTRAR PACIENTE (CREATE) ---
 def registrar_paciente(datos):

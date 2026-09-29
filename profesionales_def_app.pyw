@@ -32,6 +32,16 @@
 import sqlite3
 import tkinter as tk
 from tkinter import messagebox, ttk
+from pathlib import Path
+from datetime import datetime
+from ui_helpers import BotonRedondeado, EntradaCuadrada
+
+tk.Button = BotonRedondeado
+tk.Entry = EntradaCuadrada
+
+COLOR_FONDO = '#F4F7FB'
+COLOR_TEXTO = '#183B56'
+COLOR_SECUNDARIO = '#5C7184'
 
 # ================================================================
 # CAPA DE ACCESO A DATOS (BACKEND)
@@ -39,7 +49,8 @@ from tkinter import messagebox, ttk
 
 def conectar_bd():
     """Establece conexión con la base de datos Salud.db"""
-    return sqlite3.connect('BD/Salud.db')
+    ruta_bd = Path(__file__).resolve().parent / 'DB' / 'Salud.db'
+    return sqlite3.connect(ruta_bd)
 
 
 # -------------------- FUNCIONES DE TABLAS MAESTRAS --------------------
@@ -141,6 +152,21 @@ def buscar_profesional(dni):
     except Exception as e:
         print(f"[ERROR] Error en buscar_profesional: {e}")
         return None
+
+
+def buscar_profesionales_por_dni(texto, limite=8):
+    """Busca profesionales cuyo DNI comienza con el texto ingresado."""
+    try:
+        conexion = conectar_bd()
+        resultados = conexion.execute("""
+            SELECT p.id, p.dni, p.nombre, p.apellido, p.activo
+            FROM Profesionales p WHERE p.dni LIKE ? ORDER BY p.dni LIMIT ?
+        """, (f'{texto}%', limite)).fetchall()
+        conexion.close()
+        return resultados
+    except Exception as e:
+        print(f"[ERROR] Error en buscar_profesionales_por_dni: {e}")
+        return []
 
 
 def buscar_profesional_por_id(profesional_id):
@@ -332,7 +358,18 @@ class AppProfesionales:
         self.root = root
         self.root.title("OpenHIS-UNLaM - Gestión de Profesionales")
         self.root.geometry("1050x650")
-        self.root.configure(bg='#f0f0f0')
+        self.root.minsize(850, 560)
+        self.root.resizable(True, True)
+        self.root.configure(bg=COLOR_FONDO)
+
+        estilo = ttk.Style(self.root)
+        estilo.theme_use('clam')
+        estilo.configure('Professionals.Treeview', background='#FFFFFF', fieldbackground='#FFFFFF',
+                 foreground=COLOR_TEXTO, rowheight=32, font=('Segoe UI', 10))
+        estilo.configure('Professionals.Treeview.Heading', background='#1B4965', foreground='white',
+                 font=('Segoe UI', 10, 'bold'), padding=(8, 8))
+        estilo.map('Professionals.Treeview', background=[('selected', '#B8D8E8')],
+               foreground=[('selected', COLOR_TEXTO)])
         
         # Centrar
         self.root.update_idletasks()
@@ -343,40 +380,41 @@ class AppProfesionales:
         self.root.geometry(f'{ancho}x{alto}+{x}+{y}')
         
         # ---------- FRAME PRINCIPAL ----------
-        self.frame_principal = tk.Frame(self.root, bg='#f0f0f0')
+        self.frame_principal = tk.Frame(self.root, bg=COLOR_FONDO)
         self.frame_principal.pack(fill='both', expand=True, padx=20, pady=20)
         
         # ---------- TÍTULO ----------
         titulo = tk.Label(
             self.frame_principal,
             text="👨‍⚕️ HOSPITAL UNIVERSITARIO SAN JUSTO",
-            font=('Arial', 18, 'bold'),
-            bg='#f0f0f0',
-            fg='#003366'
+            font=('Segoe UI', 18, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_TEXTO
         )
         titulo.pack(pady=5)
         
         subtitulo = tk.Label(
             self.frame_principal,
             text="Sistema de Gestión de Profesionales - Sprint 3",
-            font=('Arial', 11),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 11),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         )
         subtitulo.pack(pady=2)
         
-        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        tk.Frame(self.frame_principal, height=1, bg='#D8E2EA').pack(fill='x', pady=10)
         
         # ---------- BOTONES PRINCIPALES ----------
-        frame_botones = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_botones = tk.Frame(self.frame_principal, bg=COLOR_FONDO)
         frame_botones.pack(pady=10)
         
         estilo_boton = {
-            'font': ('Arial', 10, 'bold'),
+            'font': ('Segoe UI', 10, 'bold'),
             'padx': 15,
             'pady': 8,
-            'relief': 'raised',
-            'bd': 2
+            'relief': 'flat',
+            'bd': 0,
+            'cursor': 'hand2'
         }
         
         self.btn_registrar = tk.Button(
@@ -420,7 +458,7 @@ class AppProfesionales:
         self.btn_baja.pack(side='left', padx=3)
         
         # --- SEPARADOR ---
-        tk.Frame(frame_botones, width=10, bg='#f0f0f0').pack(side='left')
+        tk.Frame(frame_botones, width=10, bg=COLOR_FONDO).pack(side='left')
         
         self.btn_ver_activos = tk.Button(
             frame_botones,
@@ -442,20 +480,20 @@ class AppProfesionales:
         )
         self.btn_ver_inactivos.pack(side='left', padx=3)
         
-        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        tk.Frame(self.frame_principal, height=1, bg='#D8E2EA').pack(fill='x', pady=10)
         
         # ---------- LABEL DE RESULTADOS ----------
         self.label_resultados = tk.Label(
             self.frame_principal,
             text="Seleccione una acción para comenzar",
-            font=('Arial', 11, 'italic'),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 10, 'italic'),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         )
         self.label_resultados.pack(pady=5)
         
         # ---------- TABLA DE PROFESIONALES ----------
-        frame_tabla = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_tabla = tk.Frame(self.frame_principal, bg=COLOR_FONDO)
         frame_tabla.pack(fill='both', expand=True, pady=10)
         
         self.tree = ttk.Treeview(
@@ -465,6 +503,9 @@ class AppProfesionales:
             height=12,
             selectmode='browse'
         )
+        self.tree.configure(style='Professionals.Treeview')
+        self.tree.tag_configure('par', background='#F2F7FA')
+        self.tree.tag_configure('impar', background='#FFFFFF')
         
         columnas = [
             ('ID', 'ID', 40, 'center'),
@@ -477,8 +518,12 @@ class AppProfesionales:
         ]
         
         for col, heading, width, anchor in columnas:
-            self.tree.heading(col, text=heading)
+            self.tree.heading(col, text=heading, command=lambda columna=col: self.ordenar_tabla(columna))
             self.tree.column(col, width=width, anchor=anchor)
+
+        self.columnas = columnas
+        self.orden_columna = None
+        self.orden_ascendente = True
         
         self.tree.pack(side='left', fill='both', expand=True)
         
@@ -492,9 +537,9 @@ class AppProfesionales:
         self.label_estado = tk.Label(
             self.frame_principal,
             text="✅ OpenHIS-UNLaM",
-            font=('Arial', 9),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 9),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         )
         self.label_estado.pack(side='bottom', pady=5)
         
@@ -512,15 +557,34 @@ class AppProfesionales:
         
         profesionales = listar_profesionales(activos=activos)
         
-        for p in profesionales:
+        for indice, p in enumerate(profesionales):
             # p = (id, dni, nombre, apellido, especialidad, matricula, activo)
             estado = "✅ Activo" if p[6] == 1 else "🚫 Inactivo"
+            etiqueta = 'par' if indice % 2 == 0 else 'impar'
             self.tree.insert('', 'end', values=(
                 p[0], p[1], p[2], p[3], p[4], p[5], estado
-            ))
+            ), tags=(etiqueta,))
         
         tipo = "activos" if activos else "inactivos"
         self.label_resultados.config(text=f"📊 Total de profesionales {tipo}: {len(profesionales)}")
+
+    def ordenar_tabla(self, columna):
+        """Ordena la tabla por encabezado y alterna el sentido."""
+        if self.orden_columna == columna:
+            self.orden_ascendente = not self.orden_ascendente
+        else:
+            self.orden_columna = columna
+            self.orden_ascendente = True
+        items = [(self.tree.set(item, columna), item) for item in self.tree.get_children('')]
+        items.sort(key=lambda valor: (valor[0].lower()), reverse=not self.orden_ascendente)
+        for posicion, (_, item) in enumerate(items):
+            self.tree.move(item, '', posicion)
+            self.tree.item(item, tags=('par' if posicion % 2 == 0 else 'impar',))
+        for nombre, encabezado, _, _ in self.columnas:
+            indicador = ''
+            if nombre == columna:
+                indicador = '  ▲' if self.orden_ascendente else '  ▼'
+            self.tree.heading(nombre, text=encabezado + indicador)
     
     def on_doble_click(self, event):
         """Doble clic en la tabla"""
@@ -649,26 +713,27 @@ class AppProfesionales:
         """Abre ventana para registrar nuevo profesional"""
         ventana = tk.Toplevel(self.root)
         ventana.title("Registrar Nuevo Profesional")
-        ventana.geometry("550x650")
-        ventana.configure(bg='#f0f0f0')
+        ventana.geometry("600x610")
+        ventana.minsize(520, 540)
+        ventana.configure(bg=COLOR_FONDO)
         ventana.grab_set()
-        ventana.resizable(False, False)
+        ventana.resizable(True, True)
         
         tk.Label(
             ventana,
             text="📋 REGISTRO DE PROFESIONAL",
-            font=('Arial', 14, 'bold'),
-            bg='#f0f0f0',
-            fg='#003366'
-        ).pack(pady=10)
+            font=('Segoe UI', 16, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_TEXTO
+        ).pack(pady=(8, 4))
         
         tk.Label(
             ventana,
             text="Los campos con * son obligatorios",
-            font=('Arial', 9),
-            bg='#f0f0f0',
-            fg='#666666'
-        ).pack(pady=2)
+            font=('Segoe UI', 9, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
+        ).pack(pady=(0, 5))
         
         especialidades = obtener_especialidades_selector()
         if not especialidades:
@@ -678,8 +743,8 @@ class AppProfesionales:
             ventana.destroy()
             return
         
-        frame_campos = tk.Frame(ventana, bg='#f0f0f0')
-        frame_campos.pack(padx=30, pady=10)
+        frame_campos = tk.Frame(ventana, bg=COLOR_FONDO)
+        frame_campos.pack(padx=30, pady=5)
         
         campos = [
             ('DNI *', 'dni', True),
@@ -694,36 +759,68 @@ class AppProfesionales:
         ]
         
         self.entries = {}
+        sugerencias = {
+            'dni': 'Ej.: 20123456', 'nombre': 'Ej.: Ana', 'apellido': 'Ej.: Garcia',
+            'fecha_nac': 'AAAA-MM-DD', 'sexo': 'M o F', 'matricula': 'Ej.: MN 12345',
+            'telefono': 'Ej.: 1123456789', 'email': 'Ej.: nombre@correo.com'
+        }
+
+        def formatear_fecha(event):
+            texto = ''.join(c for c in event.widget.get() if c.isdigit())[:8]
+            valor = texto
+            if len(texto) > 4:
+                valor = f'{texto[:4]}-{texto[4:]}'
+            if len(texto) > 6:
+                valor = f'{texto[:4]}-{texto[4:6]}-{texto[6:]}'
+            event.widget.delete(0, tk.END)
+            event.widget.insert(0, valor)
+
+        validar_numerico = ventana.register(lambda valor: valor == '' or valor.isdigit())
         for label_text, key, obligatorio in campos:
-            frame = tk.Frame(frame_campos, bg='#f0f0f0')
-            frame.pack(fill='x', pady=3)
+            frame = tk.Frame(frame_campos, bg=COLOR_FONDO)
+            frame.pack(fill='x', pady=2)
             
-            texto = label_text + ' *' if obligatorio else label_text
+            texto = label_text if label_text.endswith('*') else label_text + (' (*)' if obligatorio else '')
             tk.Label(
                 frame,
                 text=texto,
                 width=22,
                 anchor='w',
-                bg='#f0f0f0',
-                font=('Arial', 10)
+                bg=COLOR_FONDO,
+                fg=COLOR_TEXTO,
+                font=('Segoe UI', 10, 'bold')
             ).pack(side='left')
             
             if key == 'especialidad':
-                combo = ttk.Combobox(frame, width=28, font=('Arial', 10), state='readonly')
+                combo = ttk.Combobox(frame, width=28, font=('Segoe UI', 10), state='normal')
                 combo['values'] = [f"{esp[1]} - {esp[2]}" for esp in especialidades]
-                if combo['values']:
-                    combo.current(0)
+                opciones = tuple(combo['values'])
+                combo.bind('<KeyRelease>', lambda event, c=combo, valores=opciones: c.configure(
+                    values=[v for v in valores if c.get().lower() in v.lower()]))
                 combo.pack(side='right')
                 self.entries[key] = combo
             else:
                 entry = tk.Entry(frame, width=28, font=('Arial', 10))
+                if key == 'fecha_nac':
+                    entry.bind('<KeyRelease>', formatear_fecha)
+                if key in sugerencias:
+                    entry.insert(0, sugerencias[key])
+                    entry.configure(fg='#91A0AC')
+                    entry.bind('<FocusIn>', lambda event, e=entry, t=sugerencias[key]: (
+                        e.delete(0, tk.END) if e.get() == t else None, e.configure(fg=COLOR_TEXTO)), '+')
+                if key in ('dni', 'telefono'):
+                    entry.configure(validate='key', validatecommand=(validar_numerico, '%P'))
                 entry.pack(side='right')
                 self.entries[key] = entry
         
         def guardar():
+            def valor(campo):
+                actual = self.entries[campo].get().strip()
+                return '' if actual == sugerencias.get(campo) else actual
+
             obligatorios = ['dni', 'nombre', 'apellido', 'fecha_nac', 'sexo', 'matricula']
             for campo in obligatorios:
-                if not self.entries[campo].get().strip():
+                if not valor(campo):
                     messagebox.showerror("Error", f"El campo '{campo}' es obligatorio.")
                     return
             
@@ -742,17 +839,23 @@ class AppProfesionales:
             if sexo not in ['M', 'F']:
                 messagebox.showerror("Error", "El sexo debe ser 'M' o 'F'.")
                 return
+
+            try:
+                datetime.strptime(self.entries['fecha_nac'].get().strip(), '%Y-%m-%d')
+            except ValueError:
+                messagebox.showerror("Error", "La fecha debe tener formato AAAA-MM-DD y ser válida.")
+                return
             
             datos = {
-                'dni': self.entries['dni'].get().strip(),
-                'nombre': self.entries['nombre'].get().strip(),
-                'apellido': self.entries['apellido'].get().strip(),
-                'fecha_nac': self.entries['fecha_nac'].get().strip(),
+                'dni': valor('dni'),
+                'nombre': valor('nombre'),
+                'apellido': valor('apellido'),
+                'fecha_nac': valor('fecha_nac'),
                 'sexo': sexo,
-                'matricula': self.entries['matricula'].get().strip(),
+                'matricula': valor('matricula'),
                 'especialidad_id': especialidad_id,
-                'telefono': self.entries['telefono'].get().strip(),
-                'email': self.entries['email'].get().strip()
+                'telefono': valor('telefono'),
+                'email': valor('email')
             }
             
             resultado, info = registrar_profesional(datos)
@@ -778,29 +881,57 @@ class AppProfesionales:
         """Abre ventana para buscar profesional por DNI"""
         ventana = tk.Toplevel(self.root)
         ventana.title("Buscar Profesional")
-        ventana.geometry("500x450")
-        ventana.configure(bg='#f0f0f0')
+        ventana.geometry("600x600")
+        ventana.minsize(500, 520)
+        ventana.configure(bg=COLOR_FONDO)
         ventana.grab_set()
-        ventana.resizable(False, False)
+        ventana.resizable(True, True)
         
         tk.Label(ventana, text="🔍 BUSCAR PROFESIONAL POR DNI",
-                font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#003366').pack(pady=15)
+                font=('Segoe UI', 16, 'bold'), bg=COLOR_FONDO, fg=COLOR_TEXTO).pack(pady=12)
         
-        frame_busqueda = tk.Frame(ventana, bg='#f0f0f0')
+        frame_busqueda = tk.Frame(ventana, bg=COLOR_FONDO)
         frame_busqueda.pack(pady=10)
         
-        tk.Label(frame_busqueda, text="DNI:", font=('Arial', 12, 'bold'), bg='#f0f0f0').pack(side='left', padx=10)
+        tk.Label(frame_busqueda, text="DNI:", font=('Segoe UI', 11, 'bold'), bg=COLOR_FONDO, fg=COLOR_TEXTO).pack(side='left', padx=10)
         
-        entry_dni = tk.Entry(frame_busqueda, font=('Arial', 12), width=20)
+        entry_dni = tk.Entry(frame_busqueda, font=('Segoe UI', 11), width=20)
         entry_dni.pack(side='left', padx=10)
         entry_dni.focus()
+
+        frame_sugerencias = tk.Frame(ventana, bg=COLOR_FONDO)
+        frame_sugerencias.pack(fill='x', padx=80)
+        lista_sugerencias = tk.Listbox(frame_sugerencias, height=4, font=('Segoe UI', 10),
+                           bg='white', fg=COLOR_TEXTO, selectbackground='#B8D8E8',
+                           relief='flat', highlightthickness=1)
+        coincidencias = []
         
-        frame_resultado = tk.Frame(ventana, bg='#f0f0f0')
+        frame_resultado = tk.Frame(ventana, bg=COLOR_FONDO)
         frame_resultado.pack(pady=10, fill='both', expand=True, padx=20)
         
         label_datos = tk.Label(frame_resultado, text="Ingrese un DNI y presione Buscar",
-                              font=('Arial', 10), bg='#f0f0f0', fg='#666666', justify='left')
+                              font=('Segoe UI', 10), bg=COLOR_FONDO, fg=COLOR_SECUNDARIO, justify='left')
         label_datos.pack(pady=5)
+
+        def actualizar_sugerencias(event=None):
+            texto = entry_dni.get().strip()
+            lista_sugerencias.delete(0, tk.END)
+            coincidencias.clear()
+            lista_sugerencias.pack_forget()
+            if texto:
+                coincidencias.extend(buscar_profesionales_por_dni(texto))
+                for _, dni, nombre, apellido, activo in coincidencias:
+                    lista_sugerencias.insert(tk.END, f"{dni}  ·  {nombre} {apellido}  ({'Activo' if activo else 'Inactivo'})")
+                if coincidencias:
+                    lista_sugerencias.pack(fill='x')
+
+        def seleccionar_sugerencia(event=None):
+            seleccion = lista_sugerencias.curselection()
+            if seleccion:
+                entry_dni.delete(0, tk.END)
+                entry_dni.insert(0, coincidencias[seleccion[0]][1])
+                lista_sugerencias.pack_forget()
+                buscar()
         
         def buscar():
             dni = entry_dni.get().strip()
@@ -828,7 +959,10 @@ class AppProfesionales:
             else:
                 label_datos.config(text="❌ Profesional no encontrado.", fg='#f44336')
         
+        entry_dni.bind('<KeyRelease>', actualizar_sugerencias)
         entry_dni.bind('<Return>', lambda e: buscar())
+        lista_sugerencias.bind('<Double-1>', seleccionar_sugerencia)
+        lista_sugerencias.bind('<Return>', seleccionar_sugerencia)
         
         tk.Button(ventana, text="🔍 Buscar", bg='#2196F3', fg='white',
                  font=('Arial', 11, 'bold'), padx=20, pady=8,
@@ -839,10 +973,11 @@ class AppProfesionales:
         """Abre ventana para modificar profesional por DNI"""
         ventana = tk.Toplevel(self.root)
         ventana.title("Modificar Profesional")
-        ventana.geometry("550x500")
-        ventana.configure(bg='#f0f0f0')
+        ventana.geometry("600x560")
+        ventana.minsize(520, 500)
+        ventana.configure(bg=COLOR_FONDO)
         ventana.grab_set()
-        ventana.resizable(False, False)
+        ventana.resizable(True, True)
         
         tk.Label(ventana, text="✏️ MODIFICAR PROFESIONAL",
                 font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#FF9800').pack(pady=10)
@@ -851,9 +986,16 @@ class AppProfesionales:
         frame_buscar.pack(pady=10)
         
         tk.Label(frame_buscar, text="DNI:", font=('Arial', 11), bg='#f0f0f0').pack(side='left', padx=10)
-        entry_dni = tk.Entry(frame_buscar, font=('Arial', 11), width=20)
+        entry_dni = tk.Entry(frame_buscar, font=('Segoe UI', 11), width=20)
         entry_dni.pack(side='left', padx=10)
         entry_dni.focus()
+
+        frame_sugerencias = tk.Frame(ventana, bg=COLOR_FONDO)
+        frame_sugerencias.pack(fill='x', padx=80)
+        lista_sugerencias = tk.Listbox(frame_sugerencias, height=4, font=('Segoe UI', 10),
+                           bg='white', fg=COLOR_TEXTO, selectbackground='#B8D8E8',
+                           relief='flat', highlightthickness=1)
+        coincidencias = []
         
         frame_campos = tk.Frame(ventana, bg='#f0f0f0')
         frame_campos.pack(pady=10, padx=30, fill='both', expand=True)
@@ -924,6 +1066,30 @@ class AppProfesionales:
                 messagebox.showerror("Error", "Profesional no encontrado.")
         
         entry_dni.bind('<Return>', lambda e: buscar_mod())
+
+        def actualizar_sugerencias(event=None):
+            texto = entry_dni.get().strip()
+            lista_sugerencias.delete(0, tk.END)
+            coincidencias.clear()
+            lista_sugerencias.pack_forget()
+            if texto:
+                coincidencias.extend(buscar_profesionales_por_dni(texto))
+                for _, dni, nombre, apellido, activo in coincidencias:
+                    lista_sugerencias.insert(tk.END, f"{dni}  ·  {nombre} {apellido}  ({'Activo' if activo else 'Inactivo'})")
+                if coincidencias:
+                    lista_sugerencias.pack(fill='x')
+
+        def seleccionar_sugerencia(event=None):
+            seleccion = lista_sugerencias.curselection()
+            if seleccion:
+                entry_dni.delete(0, tk.END)
+                entry_dni.insert(0, coincidencias[seleccion[0]][1])
+                lista_sugerencias.pack_forget()
+                buscar_mod()
+
+        entry_dni.bind('<KeyRelease>', actualizar_sugerencias)
+        lista_sugerencias.bind('<Double-1>', seleccionar_sugerencia)
+        lista_sugerencias.bind('<Return>', seleccionar_sugerencia)
         
         tk.Button(ventana, text="🔍 Buscar", bg='#2196F3', fg='white',
                  font=('Arial', 10, 'bold'), padx=15, pady=5,
@@ -985,10 +1151,11 @@ class AppProfesionales:
         """Abre ventana para dar de baja un profesional"""
         ventana = tk.Toplevel(self.root)
         ventana.title("Dar de Baja Profesional")
-        ventana.geometry("520x320")
-        ventana.configure(bg='#f0f0f0')
+        ventana.geometry("600x500")
+        ventana.minsize(520, 430)
+        ventana.configure(bg=COLOR_FONDO)
         ventana.grab_set()
-        ventana.resizable(False, False)
+        ventana.resizable(True, True)
         
         tk.Label(ventana, text="🗑️ DAR DE BAJA PROFESIONAL",
                 font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#f44336').pack(pady=10)
@@ -1003,9 +1170,16 @@ class AppProfesionales:
         
         tk.Label(frame, text="DNI del profesional:", font=('Arial', 11), bg='#f0f0f0').pack(side='left', padx=10)
         
-        entry_dni = tk.Entry(frame, font=('Arial', 11), width=20)
+        entry_dni = tk.Entry(frame, font=('Segoe UI', 11), width=20)
         entry_dni.pack(side='left', padx=10)
         entry_dni.focus()
+
+        frame_sugerencias = tk.Frame(ventana, bg=COLOR_FONDO)
+        frame_sugerencias.pack(fill='x', padx=80)
+        lista_sugerencias = tk.Listbox(frame_sugerencias, height=4, font=('Segoe UI', 10),
+                           bg='white', fg=COLOR_TEXTO, selectbackground='#B8D8E8',
+                           relief='flat', highlightthickness=1)
+        coincidencias = []
         
         def confirmar():
             dni = entry_dni.get().strip()
@@ -1042,6 +1216,29 @@ class AppProfesionales:
                     messagebox.showerror("Error", f"❌ {mensaje}")
         
         entry_dni.bind('<Return>', lambda e: confirmar())
+
+        def actualizar_sugerencias(event=None):
+            texto = entry_dni.get().strip()
+            lista_sugerencias.delete(0, tk.END)
+            coincidencias.clear()
+            lista_sugerencias.pack_forget()
+            if texto:
+                coincidencias.extend(buscar_profesionales_por_dni(texto))
+                for _, dni, nombre, apellido, activo in coincidencias:
+                    lista_sugerencias.insert(tk.END, f"{dni}  ·  {nombre} {apellido}  ({'Activo' if activo else 'Inactivo'})")
+                if coincidencias:
+                    lista_sugerencias.pack(fill='x')
+
+        def seleccionar_sugerencia(event=None):
+            seleccion = lista_sugerencias.curselection()
+            if seleccion:
+                entry_dni.delete(0, tk.END)
+                entry_dni.insert(0, coincidencias[seleccion[0]][1])
+                lista_sugerencias.pack_forget()
+
+        entry_dni.bind('<KeyRelease>', actualizar_sugerencias)
+        lista_sugerencias.bind('<Double-1>', seleccionar_sugerencia)
+        lista_sugerencias.bind('<Return>', seleccionar_sugerencia)
         
         tk.Button(ventana, text="🗑️ Confirmar Baja", bg='#f44336', fg='white',
                  font=('Arial', 11, 'bold'), padx=25, pady=8,

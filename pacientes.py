@@ -5,10 +5,12 @@
 
 import sqlite3
 from datetime import datetime
+from pathlib import Path
 # --- CONEXIÓN A LA BASE DE DATOS ---
 def conectar_bd():
  """Establece conexión con la base de datos Salud.db"""
- return sqlite3.connect('BD/Salud.db')
+ ruta_bd = Path(__file__).resolve().parent / 'DB' / 'Salud.db'
+ return sqlite3.connect(ruta_bd)
 # --- HU-01: REGISTRAR UN NUEVO PACIENTE (CREATE) ---
 def registrar_paciente():
  print("\n" + "="*50)
