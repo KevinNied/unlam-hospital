@@ -19,6 +19,15 @@ import sqlite3
 import tkinter as tk
 from tkinter import messagebox, ttk
 from datetime import datetime
+from pathlib import Path
+from ui_helpers import BotonRedondeado, EntradaCuadrada, combo_busqueda
+
+tk.Button = BotonRedondeado
+tk.Entry = EntradaCuadrada
+
+COLOR_FONDO = '#F4F7FB'
+COLOR_TEXTO = '#183B56'
+COLOR_SECUNDARIO = '#5C7184'
 
 # ================================================================
 # CAPA DE ACCESO A DATOS (BACKEND)
@@ -26,7 +35,8 @@ from datetime import datetime
 
 def conectar_bd():
     """Establece conexión con la base de datos Salud.db"""
-    return sqlite3.connect('BD/Salud.db')
+    ruta_bd = Path(__file__).resolve().parent / 'DB' / 'Salud.db'
+    return sqlite3.connect(ruta_bd)
 
 
 # -------------------- CONSULTAS DE APOYO --------------------
@@ -338,7 +348,18 @@ class AppSignosVitales:
         self.root = root
         self.root.title("OpenHIS-UNLaM - Signos Vitales")
         self.root.geometry("1150x700")
-        self.root.configure(bg='#f0f0f0')
+        self.root.minsize(900, 580)
+        self.root.resizable(True, True)
+        self.root.configure(bg=COLOR_FONDO)
+
+        estilo = ttk.Style(self.root)
+        estilo.theme_use('clam')
+        estilo.configure('Vitals.Treeview', background='#FFFFFF', fieldbackground='#FFFFFF',
+                 foreground=COLOR_TEXTO, rowheight=32, font=('Segoe UI', 10))
+        estilo.configure('Vitals.Treeview.Heading', background='#1B4965', foreground='white',
+                 font=('Segoe UI', 10, 'bold'), padding=(8, 8))
+        estilo.map('Vitals.Treeview', background=[('selected', '#B8D8E8')],
+               foreground=[('selected', COLOR_TEXTO)])
         
         # Centrar
         self.root.update_idletasks()
@@ -349,38 +370,39 @@ class AppSignosVitales:
         self.root.geometry(f'{ancho}x{alto}+{x}+{y}')
         
         # Frame principal
-        self.frame_principal = tk.Frame(self.root, bg='#f0f0f0')
+        self.frame_principal = tk.Frame(self.root, bg=COLOR_FONDO)
         self.frame_principal.pack(fill='both', expand=True, padx=20, pady=20)
         
         # Título
         tk.Label(
             self.frame_principal,
             text="❤️ SIGNOS VITALES",
-            font=('Arial', 18, 'bold'),
-            bg='#f0f0f0',
+            font=('Segoe UI', 18, 'bold'),
+            bg=COLOR_FONDO,
             fg='#E91E63'
         ).pack(pady=5)
         
         tk.Label(
             self.frame_principal,
             text="Hospital Universitario San Justo - Registro de Signos Vitales",
-            font=('Arial', 11),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 11),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         ).pack(pady=2)
         
-        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        tk.Frame(self.frame_principal, height=1, bg='#D8E2EA').pack(fill='x', pady=10)
         
         # ---------- BOTONES PRINCIPALES ----------
-        frame_botones = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_botones = tk.Frame(self.frame_principal, bg=COLOR_FONDO)
         frame_botones.pack(pady=10)
         
         estilo_boton = {
-            'font': ('Arial', 10, 'bold'),
+            'font': ('Segoe UI', 10, 'bold'),
             'padx': 15,
             'pady': 8,
-            'relief': 'raised',
-            'bd': 2
+            'relief': 'flat',
+            'bd': 0,
+            'cursor': 'hand2'
         }
         
         tk.Button(
@@ -402,7 +424,7 @@ class AppSignosVitales:
         ).pack(side='left', padx=3)
         
         # Separador
-        tk.Frame(frame_botones, width=20, bg='#f0f0f0').pack(side='left')
+        tk.Frame(frame_botones, width=20, bg=COLOR_FONDO).pack(side='left')
         
         # NUEVOS BOTONES: Ver Activos / Ver Anulados
         tk.Button(
@@ -423,20 +445,20 @@ class AppSignosVitales:
             **estilo_boton
         ).pack(side='left', padx=3)
         
-        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        tk.Frame(self.frame_principal, height=1, bg='#D8E2EA').pack(fill='x', pady=10)
         
         # Label resultados
         self.label_resultados = tk.Label(
             self.frame_principal,
             text="Seleccione una acción para comenzar",
-            font=('Arial', 11, 'italic'),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 10, 'italic'),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         )
         self.label_resultados.pack(pady=5)
         
         # Tabla
-        frame_tabla = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_tabla = tk.Frame(self.frame_principal, bg=COLOR_FONDO)
         frame_tabla.pack(fill='both', expand=True, pady=10)
         
         self.tree = ttk.Treeview(
@@ -446,6 +468,9 @@ class AppSignosVitales:
             height=12,
             selectmode='browse'
         )
+        self.tree.configure(style='Vitals.Treeview')
+        self.tree.tag_configure('par', background='#F2F7FA')
+        self.tree.tag_configure('impar', background='#FFFFFF')
         
         columnas = [
             ('ID', 'ID', 40, 'center'),
@@ -477,9 +502,9 @@ class AppSignosVitales:
         self.label_estado = tk.Label(
             self.frame_principal,
             text="✅ OpenHIS-UNLaM",
-            font=('Arial', 9),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 9),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         )
         self.label_estado.pack(side='bottom', pady=5)
         
@@ -497,9 +522,10 @@ class AppSignosVitales:
         
         registros = listar_signos_vitales(activos=activos)
         
-        for r in registros:
+        for indice, r in enumerate(registros):
             presion = f"{r[5]}/{r[6]}" if r[5] and r[6] else '-'
             estado = "✅ Activo" if r[11] == 1 else "🚫 Anulado"
+            etiqueta = 'par' if indice % 2 == 0 else 'impar'
             
             self.tree.insert('', 'end', values=(
                 r[0], r[1][:16] if r[1] else '',
@@ -509,7 +535,7 @@ class AppSignosVitales:
                 r[7] or '-', r[8] or '-', r[9] or '-',
                 r[10] or '-',
                 estado
-            ))
+            ), tags=(etiqueta,))
         
         tipo = "activos" if activos else "anulados"
         self.label_resultados.config(text=f"📊 Total de registros {tipo}: {len(registros)}")
@@ -652,25 +678,26 @@ class AppSignosVitales:
         """Abre ventana para registrar nuevos signos vitales"""
         ventana = tk.Toplevel(self.root)
         ventana.title("Nuevo Registro de Signos Vitales")
-        ventana.geometry("680x680")
-        ventana.configure(bg='#f0f0f0')
+        ventana.geometry("720x650")
+        ventana.minsize(620, 560)
+        ventana.configure(bg=COLOR_FONDO)
         ventana.grab_set()
-        ventana.resizable(False, False)
+        ventana.resizable(True, True)
         
         tk.Label(
             ventana,
             text="❤️ NUEVO REGISTRO DE SIGNOS VITALES",
-            font=('Arial', 14, 'bold'),
-            bg='#f0f0f0',
+            font=('Segoe UI', 16, 'bold'),
+            bg=COLOR_FONDO,
             fg='#E91E63'
         ).pack(pady=10)
         
         tk.Label(
             ventana,
             text="Los campos con * son obligatorios",
-            font=('Arial', 9),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 9, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         ).pack(pady=2)
         
         # Obtener datos
@@ -690,35 +717,31 @@ class AppSignosVitales:
             ventana.destroy()
             return
         
-        frame_campos = tk.Frame(ventana, bg='#f0f0f0')
+        frame_campos = tk.Frame(ventana, bg=COLOR_FONDO)
         frame_campos.pack(padx=30, pady=10, fill='both', expand=True)
         
         # Paciente
-        frame = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame = tk.Frame(frame_campos, bg=COLOR_FONDO)
         frame.pack(fill='x', pady=4)
         tk.Label(frame, text="Paciente *:", width=22, anchor='w',
-                bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
+                bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(side='left')
         valores_pacientes = [f"{p[0]} - {p[2]} {p[3]} (DNI: {p[1]})" for p in pacientes]
-        combo_paciente = ttk.Combobox(frame, width=38, font=('Arial', 10), state='readonly')
-        combo_paciente['values'] = valores_pacientes
-        combo_paciente.current(0)
+        combo_paciente = combo_busqueda(frame, valores_pacientes, 38)
         combo_paciente.pack(side='right')
         
         # Médico
-        frame = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame = tk.Frame(frame_campos, bg=COLOR_FONDO)
         frame.pack(fill='x', pady=4)
         tk.Label(frame, text="Médico *:", width=22, anchor='w',
-                bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
+                bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(side='left')
         valores_prof = [f"{p[0]} - {p[2]} {p[3]} ({p[4] or 'Sin especialidad'})" for p in profesionales]
-        combo_medico = ttk.Combobox(frame, width=38, font=('Arial', 10), state='readonly')
-        combo_medico['values'] = valores_prof
-        combo_medico.current(0)
+        combo_medico = combo_busqueda(frame, valores_prof, 38)
         combo_medico.pack(side='right')
         
         tk.Frame(frame_campos, height=2, bg='#cccccc').pack(fill='x', pady=10)
         
         # Grid de signos
-        frame_grid = tk.Frame(frame_campos, bg='#f0f0f0')
+        frame_grid = tk.Frame(frame_campos, bg=COLOR_FONDO)
         frame_grid.pack(fill='x', pady=5)
         
         campos_grid = [
@@ -731,12 +754,15 @@ class AppSignosVitales:
         ]
         
         entries = {}
+        validar_entero = ventana.register(lambda valor: valor == '' or valor.isdigit())
         for label_text, key, row, col in campos_grid:
-            frame = tk.Frame(frame_grid, bg='#f0f0f0')
+            frame = tk.Frame(frame_grid, bg=COLOR_FONDO)
             frame.grid(row=row, column=col, sticky='ew', padx=10, pady=3)
             tk.Label(frame, text=label_text, width=22, anchor='w',
-                    bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
+                    bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(side='left')
             entry = tk.Entry(frame, width=18, font=('Arial', 10))
+            if key in ('sistolica', 'diastolica', 'fc', 'sat'):
+                entry.configure(validate='key', validatecommand=(validar_entero, '%P'))
             entry.pack(side='right')
             entries[key] = entry
         
@@ -773,7 +799,7 @@ class AppSignosVitales:
             else:
                 messagebox.showerror("Error", f"❌ {info}")
         
-        frame_botones = tk.Frame(ventana, bg='#f0f0f0')
+        frame_botones = tk.Frame(ventana, bg=COLOR_FONDO)
         frame_botones.pack(pady=20)
         
         tk.Button(frame_botones, text="💾 Guardar", bg='#4CAF50', fg='white',

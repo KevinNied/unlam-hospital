@@ -21,6 +21,15 @@
 import sqlite3
 import tkinter as tk
 from tkinter import messagebox, ttk
+from pathlib import Path
+from ui_helpers import BotonRedondeado, EntradaCuadrada
+
+tk.Button = BotonRedondeado
+tk.Entry = EntradaCuadrada
+
+COLOR_FONDO = '#F4F7FB'
+COLOR_TEXTO = '#183B56'
+COLOR_SECUNDARIO = '#5C7184'
 
 # ================================================================
 # CAPA DE ACCESO A DATOS
@@ -28,7 +37,8 @@ from tkinter import messagebox, ttk
 
 def conectar_bd():
     """Establece conexión con la base de datos Salud.db"""
-    return sqlite3.connect('BD/Salud.db')
+    ruta_bd = Path(__file__).resolve().parent / 'DB' / 'Salud.db'
+    return sqlite3.connect(ruta_bd)
 
 
 # -------------------- FUNCIONES GENÉRICAS --------------------
@@ -90,6 +100,18 @@ def crear_tablas_maestras():
                 presentacion TEXT,
                 concentracion TEXT,
                 via_administracion TEXT,
+                activo INTEGER DEFAULT 1,
+                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ObrasSociales (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                codigo TEXT UNIQUE NOT NULL,
+                nombre TEXT UNIQUE NOT NULL,
+                telefono TEXT,
+                email TEXT,
                 activo INTEGER DEFAULT 1,
                 fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -305,6 +327,64 @@ def registrar_farmaco(datos):
         return False, f"❌ Error: {e}"
 
 
+def listar_obras_sociales():
+    """Lista obras sociales activas e inactivas."""
+    try:
+        conexion = conectar_bd()
+        resultados = conexion.execute("""
+            SELECT id, codigo, nombre, telefono, email, activo
+            FROM ObrasSociales ORDER BY nombre
+        """).fetchall()
+        conexion.close()
+        return resultados
+    except Exception as e:
+        return []
+
+
+def registrar_obra_social(datos):
+    try:
+        conexion = conectar_bd()
+        cursor = conexion.cursor()
+        cursor.execute("""
+            INSERT INTO ObrasSociales (codigo, nombre, telefono, email, activo)
+            VALUES (?, ?, ?, ?, 1)
+        """, (datos['codigo'], datos['nombre'], datos['telefono'], datos['email']))
+        conexion.commit()
+        nuevo_id = cursor.lastrowid
+        conexion.close()
+        return True, nuevo_id
+    except sqlite3.IntegrityError:
+        return False, "❌ El código o nombre ya existe."
+    except Exception as e:
+        return False, f"❌ Error: {e}"
+
+
+def modificar_obra_social(obra_id, datos):
+    try:
+        conexion = conectar_bd()
+        conexion.execute("""
+            UPDATE ObrasSociales SET codigo=?, nombre=?, telefono=?, email=? WHERE id=?
+        """, (datos['codigo'], datos['nombre'], datos['telefono'], datos['email'], obra_id))
+        conexion.commit()
+        conexion.close()
+        return True, "✅ Obra social modificada correctamente."
+    except sqlite3.IntegrityError:
+        return False, "❌ El código o nombre ya existe."
+    except Exception as e:
+        return False, f"❌ Error: {e}"
+
+
+def desactivar_obra_social(obra_id):
+    try:
+        conexion = conectar_bd()
+        conexion.execute("UPDATE ObrasSociales SET activo=0 WHERE id=?", (obra_id,))
+        conexion.commit()
+        conexion.close()
+        return True, "✅ Obra social desactivada correctamente."
+    except Exception as e:
+        return False, f"❌ Error: {e}"
+
+
 # ================================================================
 # CAPA DE PRESENTACIÓN - APPLET GENERAL PARA TABLAS MAESTRAS
 # ================================================================
@@ -316,46 +396,58 @@ class AppTablasMaestras:
         self.root = root
         self.root.title("OpenHIS-UNLaM - Tablas Maestras")
         self.root.geometry("900x650")
-        self.root.configure(bg='#f0f0f0')
+        self.root.minsize(700, 520)
+        self.root.resizable(True, True)
+        self.root.configure(bg=COLOR_FONDO)
+
+        estilo = ttk.Style(self.root)
+        estilo.theme_use('clam')
+        estilo.configure('Masters.Treeview', background='#FFFFFF', fieldbackground='#FFFFFF',
+                 foreground=COLOR_TEXTO, rowheight=32, font=('Segoe UI', 10))
+        estilo.configure('Masters.Treeview.Heading', background='#1B4965', foreground='white',
+                 font=('Segoe UI', 10, 'bold'), padding=(8, 8))
+        estilo.map('Masters.Treeview', background=[('selected', '#B8D8E8')],
+               foreground=[('selected', COLOR_TEXTO)])
         
         # Verificar/Crear tablas
         crear_tablas_maestras()
         
         # ---------- FRAME PRINCIPAL ----------
-        self.frame_principal = tk.Frame(self.root, bg='#f0f0f0')
+        self.frame_principal = tk.Frame(self.root, bg=COLOR_FONDO)
         self.frame_principal.pack(fill='both', expand=True, padx=20, pady=20)
         
         # ---------- TÍTULO ----------
         titulo = tk.Label(
             self.frame_principal,
             text="📚 TABLAS MAESTRAS",
-            font=('Arial', 18, 'bold'),
-            bg='#f0f0f0',
-            fg='#003366'
+            font=('Segoe UI', 18, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_TEXTO
         )
         titulo.pack(pady=10)
         
         subtitulo = tk.Label(
             self.frame_principal,
-            text="Gestión de Especialidades, SNOMED CT y Fármacos",
-            font=('Arial', 11),
-            bg='#f0f0f0',
-            fg='#666666'
+            text="Gestión de Especialidades, SNOMED CT, Fármacos y Obras Sociales",
+            font=('Segoe UI', 11),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         )
         subtitulo.pack(pady=5)
         
-        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        tk.Frame(self.frame_principal, height=1, bg='#D8E2EA').pack(fill='x', pady=10)
         
         # ---------- BOTONES DE SELECCIÓN DE TABLA ----------
-        frame_tablas = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_tablas = tk.Frame(self.frame_principal, bg=COLOR_FONDO)
         frame_tablas.pack(pady=10)
         
         estilo_boton = {
-            'font': ('Arial', 11, 'bold'),
+            'font': ('Segoe UI', 11, 'bold'),
             'padx': 20,
             'pady': 8,
-            'relief': 'raised',
-            'bd': 2
+            'relief': 'flat',
+            'bd': 0,
+            'cursor': 'hand2'
         }
         
         self.btn_especialidades = tk.Button(
@@ -387,20 +479,30 @@ class AppTablasMaestras:
             **estilo_boton
         )
         self.btn_farmacos.pack(side='left', padx=5)
+
+        self.btn_obras_sociales = tk.Button(
+            frame_tablas,
+            text="🏢 Obras Sociales",
+            bg='#7B1FA2',
+            fg='white',
+            command=self.mostrar_obras_sociales,
+            **estilo_boton
+        )
+        self.btn_obras_sociales.pack(side='left', padx=5)
         
-        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
+        tk.Frame(self.frame_principal, height=1, bg='#D8E2EA').pack(fill='x', pady=10)
         
         # ---------- ÁREA DE CONTENIDO ----------
-        self.frame_contenido = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        self.frame_contenido = tk.Frame(self.frame_principal, bg=COLOR_FONDO)
         self.frame_contenido.pack(fill='both', expand=True, pady=10)
         
         # Mensaje inicial
         self.label_mensaje = tk.Label(
             self.frame_contenido,
             text="Seleccione una tabla para comenzar la gestión",
-            font=('Arial', 14),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 14),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         )
         self.label_mensaje.pack(expand=True)
         
@@ -408,9 +510,9 @@ class AppTablasMaestras:
         self.label_estado = tk.Label(
             self.frame_principal,
             text="✅ Sistema listo",
-            font=('Arial', 9),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 9),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         )
         self.label_estado.pack(side='bottom', pady=5)
     
@@ -422,6 +524,115 @@ class AppTablasMaestras:
         """Limpia el área de contenido"""
         for widget in self.frame_contenido.winfo_children():
             widget.destroy()
+
+    def mostrar_obras_sociales(self):
+        """Muestra el CRUD de obras sociales."""
+        self.limpiar_contenido()
+        tk.Label(self.frame_contenido, text='🏢 GESTIÓN DE OBRAS SOCIALES',
+                 font=('Segoe UI', 16, 'bold'), bg=COLOR_FONDO, fg='#7B1FA2').pack(pady=5)
+
+        frame_acciones = tk.Frame(self.frame_contenido, bg=COLOR_FONDO)
+        frame_acciones.pack(pady=5)
+        tk.Button(frame_acciones, text='➕ Agregar Obra Social', bg='#7B1FA2', fg='white',
+                  command=self.agregar_obra_social, padx=15, pady=6).pack(side='left', padx=5)
+        tk.Button(frame_acciones, text='🔄 Actualizar', bg='#2196F3', fg='white',
+                  command=self.mostrar_obras_sociales, padx=15, pady=6).pack(side='left', padx=5)
+
+        frame_tabla = tk.Frame(self.frame_contenido, bg=COLOR_FONDO)
+        frame_tabla.pack(fill='both', expand=True, pady=10)
+        tree = ttk.Treeview(frame_tabla, columns=('ID', 'Código', 'Nombre', 'Teléfono', 'Email', 'Estado'),
+                            show='headings', style='Masters.Treeview')
+        for columna, ancho in (('ID', 50), ('Código', 100), ('Nombre', 220),
+                               ('Teléfono', 140), ('Email', 220), ('Estado', 100)):
+            tree.heading(columna, text=columna)
+            tree.column(columna, width=ancho, anchor='w')
+        tree.pack(side='left', fill='both', expand=True)
+        scrollbar = ttk.Scrollbar(frame_tabla, orient='vertical', command=tree.yview)
+        scrollbar.pack(side='right', fill='y')
+        tree.configure(yscrollcommand=scrollbar.set)
+
+        for indice, obra in enumerate(listar_obras_sociales()):
+            tree.insert('', 'end', values=(obra[0], obra[1], obra[2], obra[3] or '',
+                                          obra[4] or '', 'Activo' if obra[5] else 'Inactivo'),
+                         tags=('par' if indice % 2 == 0 else 'impar',))
+        tree.bind('<Double-1>', lambda event: self.editar_obra_social(tree))
+        tree.bind('<Button-3>', lambda event: self.menu_obra_social(tree, event))
+
+    def menu_obra_social(self, tree, event):
+        seleccion = tree.identify_row(event.y)
+        if not seleccion:
+            return
+        tree.selection_set(seleccion)
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label='✏️ Editar', command=lambda: self.editar_obra_social(tree))
+        menu.add_command(label='🚫 Desactivar', command=lambda: self.desactivar_obra_social(tree))
+        menu.post(event.x_root, event.y_root)
+
+    def desactivar_obra_social(self, tree):
+        seleccion = tree.selection()
+        if not seleccion:
+            return
+        obra_id = tree.item(seleccion[0])['values'][0]
+        if messagebox.askyesno('Confirmar', '¿Desactivar esta obra social?'):
+            resultado, mensaje = desactivar_obra_social(obra_id)
+            if resultado:
+                self.mostrar_obras_sociales()
+            else:
+                messagebox.showerror('Error', mensaje)
+
+    def agregar_obra_social(self):
+        self._formulario_obra_social()
+
+    def editar_obra_social(self, tree):
+        seleccion = tree.selection()
+        if not seleccion:
+            return
+        valores = tree.item(seleccion[0])['values']
+        self._formulario_obra_social(valores)
+
+    def _formulario_obra_social(self, valores=None):
+        editar = valores is not None
+        ventana = tk.Toplevel(self.root)
+        ventana.title('Editar Obra Social' if editar else 'Agregar Obra Social')
+        ventana.geometry('560x360')
+        ventana.minsize(500, 320)
+        ventana.configure(bg=COLOR_FONDO)
+        ventana.grab_set()
+
+        tk.Label(ventana, text=('✏️ EDITAR OBRA SOCIAL' if editar else '➕ AGREGAR OBRA SOCIAL'),
+                 font=('Segoe UI', 16, 'bold'), bg=COLOR_FONDO, fg='#7B1FA2').pack(pady=(10, 5))
+        campos = [('Código *', 'codigo'), ('Nombre *', 'nombre'), ('Teléfono', 'telefono'), ('Email', 'email')]
+        frame = tk.Frame(ventana, bg=COLOR_FONDO)
+        frame.pack(padx=35, pady=8, fill='x')
+        entradas = {}
+        for indice, (etiqueta, clave) in enumerate(campos):
+            tk.Label(frame, text=etiqueta, width=16, anchor='w', bg=COLOR_FONDO,
+                     fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).grid(row=indice, column=0, pady=5, sticky='w')
+            entrada = tk.Entry(frame, width=32, font=('Segoe UI', 10))
+            if editar:
+                entrada.insert(0, valores[{'codigo': 1, 'nombre': 2, 'telefono': 3, 'email': 4}[clave]] or '')
+            entrada.grid(row=indice, column=1, pady=5, sticky='ew')
+            entradas[clave] = entrada
+        frame.columnconfigure(1, weight=1)
+
+        def guardar():
+            datos = {clave: entradas[clave].get().strip() for _, clave in campos}
+            if not datos['codigo'] or not datos['nombre']:
+                messagebox.showerror('Error', 'Código y nombre son obligatorios.')
+                return
+            resultado = modificar_obra_social(valores[0], datos) if editar else registrar_obra_social(datos)
+            if resultado[0]:
+                ventana.destroy()
+                self.mostrar_obras_sociales()
+            else:
+                messagebox.showerror('Error', resultado[1])
+
+        frame_botones = tk.Frame(ventana, bg=COLOR_FONDO)
+        frame_botones.pack(pady=12)
+        tk.Button(frame_botones, text='💾 Guardar', bg='#7B1FA2', fg='white', command=guardar,
+                  padx=20, pady=7).pack(side='left', padx=8)
+        tk.Button(frame_botones, text='✕ Cancelar', bg='#F44336', fg='white', command=ventana.destroy,
+                  padx=20, pady=7).pack(side='left', padx=8)
     
     def mostrar_especialidades(self):
         """Muestra la gestión de especialidades"""
@@ -472,6 +683,9 @@ class AppTablasMaestras:
             show='headings',
             height=15
         )
+        tree.configure(style='Masters.Treeview')
+        tree.tag_configure('par', background='#F2F7FA')
+        tree.tag_configure('impar', background='#FFFFFF')
         tree.heading('ID', text='ID')
         tree.heading('Código', text='Código')
         tree.heading('Nombre', text='Nombre')
@@ -490,9 +704,10 @@ class AppTablasMaestras:
         
         # Cargar datos
         especialidades = listar_especialidades(activos=False)
-        for esp in especialidades:
+        for indice, esp in enumerate(especialidades):
             estado = "Activo" if esp[4] == 1 else "Inactivo"
-            tree.insert('', 'end', values=(esp[0], esp[1], esp[2], esp[3], estado))
+            etiqueta = 'par' if indice % 2 == 0 else 'impar'
+            tree.insert('', 'end', values=(esp[0], esp[1], esp[2], esp[3], estado), tags=(etiqueta,))
         
         # Eventos
         tree.bind('<Double-1>', lambda e: self.editar_especialidad(tree))
@@ -503,19 +718,21 @@ class AppTablasMaestras:
         """Abre ventana para agregar una especialidad"""
         ventana = tk.Toplevel(self.root)
         ventana.title("Agregar Especialidad")
-        ventana.geometry("550x300")
-        ventana.configure(bg='#f0f0f0')
+        ventana.geometry("560x340")
+        ventana.minsize(500, 300)
+        ventana.configure(bg=COLOR_FONDO)
         ventana.grab_set()
+        ventana.resizable(True, True)
         
         tk.Label(
             ventana,
             text="➕ AGREGAR ESPECIALIDAD",
-            font=('Arial', 14, 'bold'),
-            bg='#f0f0f0',
+            font=('Segoe UI', 16, 'bold'),
+            bg=COLOR_FONDO,
             fg='#4CAF50'
         ).pack(pady=10)
         
-        frame = tk.Frame(ventana, bg='#f0f0f0')
+        frame = tk.Frame(ventana, bg=COLOR_FONDO)
         frame.pack(padx=30, pady=10)
         
         campos = [
@@ -526,9 +743,9 @@ class AppTablasMaestras:
         
         entries = {}
         for label_text, key in campos:
-            f = tk.Frame(frame, bg='#f0f0f0')
+            f = tk.Frame(frame, bg=COLOR_FONDO)
             f.pack(fill='x', pady=3)
-            tk.Label(f, text=label_text, width=15, anchor='w', bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
+            tk.Label(f, text=label_text, width=15, anchor='w', bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(side='left')
             entry = tk.Entry(f, width=30, font=('Arial', 10))
             entry.pack(side='right')
             entries[key] = entry
@@ -718,6 +935,9 @@ class AppTablasMaestras:
             show='headings',
             height=15
         )
+        tree.configure(style='Masters.Treeview')
+        tree.tag_configure('par', background='#F2F7FA')
+        tree.tag_configure('impar', background='#FFFFFF')
         tree.heading('ID', text='ID')
         tree.heading('Código', text='Código')
         tree.heading('Término', text='Término')
@@ -742,19 +962,21 @@ class AppTablasMaestras:
         """Abre ventana para agregar un término SNOMED CT"""
         ventana = tk.Toplevel(self.root)
         ventana.title("Agregar Término SNOMED CT")
-        ventana.geometry("450x350")
-        ventana.configure(bg='#f0f0f0')
+        ventana.geometry("520x390")
+        ventana.minsize(460, 340)
+        ventana.configure(bg=COLOR_FONDO)
         ventana.grab_set()
+        ventana.resizable(True, True)
         
         tk.Label(
             ventana,
             text="➕ AGREGAR TÉRMINO SNOMED CT",
-            font=('Arial', 14, 'bold'),
-            bg='#f0f0f0',
+            font=('Segoe UI', 16, 'bold'),
+            bg=COLOR_FONDO,
             fg='#2196F3'
         ).pack(pady=10)
         
-        frame = tk.Frame(ventana, bg='#f0f0f0')
+        frame = tk.Frame(ventana, bg=COLOR_FONDO)
         frame.pack(padx=30, pady=10)
         
         campos = [
@@ -766,9 +988,9 @@ class AppTablasMaestras:
         
         entries = {}
         for label_text, key in campos:
-            f = tk.Frame(frame, bg='#f0f0f0')
+            f = tk.Frame(frame, bg=COLOR_FONDO)
             f.pack(fill='x', pady=3)
-            tk.Label(f, text=label_text, width=15, anchor='w', bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
+            tk.Label(f, text=label_text, width=15, anchor='w', bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(side='left')
             entry = tk.Entry(f, width=30, font=('Arial', 10))
             entry.pack(side='right')
             entries[key] = entry
@@ -834,6 +1056,9 @@ class AppTablasMaestras:
             show='headings',
             height=10
         )
+        tree.configure(style='Masters.Treeview')
+        tree.tag_configure('par', background='#F2F7FA')
+        tree.tag_configure('impar', background='#FFFFFF')
         tree.heading('Código', text='Código')
         tree.heading('Término', text='Término')
         tree.heading('Categoría', text='Categoría')
@@ -927,6 +1152,9 @@ class AppTablasMaestras:
             show='headings',
             height=15
         )
+        tree.configure(style='Masters.Treeview')
+        tree.tag_configure('par', background='#F2F7FA')
+        tree.tag_configure('impar', background='#FFFFFF')
         tree.heading('ID', text='ID')
         tree.heading('Código', text='Código')
         tree.heading('Nombre', text='Nombre')
@@ -955,19 +1183,21 @@ class AppTablasMaestras:
         """Abre ventana para agregar un fármaco"""
         ventana = tk.Toplevel(self.root)
         ventana.title("Agregar Fármaco")
-        ventana.geometry("500x450")
-        ventana.configure(bg='#f0f0f0')
+        ventana.geometry("560x500")
+        ventana.minsize(500, 430)
+        ventana.configure(bg=COLOR_FONDO)
         ventana.grab_set()
+        ventana.resizable(True, True)
         
         tk.Label(
             ventana,
             text="➕ AGREGAR FÁRMACO",
-            font=('Arial', 14, 'bold'),
-            bg='#f0f0f0',
+            font=('Segoe UI', 16, 'bold'),
+            bg=COLOR_FONDO,
             fg='#FF9800'
         ).pack(pady=10)
         
-        frame = tk.Frame(ventana, bg='#f0f0f0')
+        frame = tk.Frame(ventana, bg=COLOR_FONDO)
         frame.pack(padx=30, pady=10)
         
         campos = [
@@ -981,9 +1211,9 @@ class AppTablasMaestras:
         
         entries = {}
         for label_text, key in campos:
-            f = tk.Frame(frame, bg='#f0f0f0')
+            f = tk.Frame(frame, bg=COLOR_FONDO)
             f.pack(fill='x', pady=3)
-            tk.Label(f, text=label_text, width=18, anchor='w', bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
+            tk.Label(f, text=label_text, width=18, anchor='w', bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(side='left')
             entry = tk.Entry(f, width=28, font=('Arial', 10))
             entry.pack(side='right')
             entries[key] = entry

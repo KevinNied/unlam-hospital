@@ -40,6 +40,11 @@ import sys
 import os
 from datetime import datetime
 
+COLOR_FONDO = '#F4F7FB'
+COLOR_TEXTO = '#183B56'
+COLOR_SECUNDARIO = '#5C7184'
+COLOR_HEADER = '#123B5D'
+
 # ================================================================
 # CONFIGURACIÓN DE MÓDULOS
 # ================================================================
@@ -170,8 +175,20 @@ class MenuPrincipal:
         self.root = root
         self.root.title("OpenHIS-UNLaM - Sistema de Información Hospitalaria")
         self.root.geometry("1100x750")
-        self.root.configure(bg='#f0f0f0')
+        self.root.configure(bg=COLOR_FONDO)
         self.root.minsize(900, 600)
+        self.root.protocol("WM_DELETE_WINDOW", self.salir)
+
+        estilo = ttk.Style(self.root)
+        estilo.theme_use('clam')
+        estilo.configure('Modern.Vertical.TScrollbar', troughcolor='#E6EDF3', background='#A7BAC9')
+        estilo.configure('Modern.TLabelframe', background=COLOR_FONDO)
+        estilo.configure('Modern.TLabelframe.Label', background=COLOR_FONDO, foreground=COLOR_TEXTO)
+
+        # Atajos para las acciones de uso frecuente.
+        self.root.bind('<Control-p>', lambda event: abrir_modulo('Pacientes_def_app.pyw', 'Pacientes'))
+        self.root.bind('<Control-s>', lambda event: abrir_modulo('Signos_vitales_def_app.pyw', 'Signos Vitales'))
+        self.root.bind('<Control-r>', lambda event: abrir_modulo('Prescripciones_def_app.pyw', 'Prescripciones'))
         
         # Centrar la ventana
         self.root.update_idletasks()
@@ -182,7 +199,7 @@ class MenuPrincipal:
         self.root.geometry(f'{ancho}x{alto}+{x}+{y}')
         
         # ---------- FRAME PRINCIPAL ----------
-        self.frame_principal = tk.Frame(self.root, bg='#f0f0f0')
+        self.frame_principal = tk.Frame(self.root, bg=COLOR_FONDO)
         self.frame_principal.pack(fill='both', expand=True, padx=20, pady=20)
         
         # ---------- ENCABEZADO ----------
@@ -190,6 +207,9 @@ class MenuPrincipal:
         
         # ---------- BIENVENIDA ----------
         self.crear_bienvenida()
+
+        # ---------- ACCESOS RÁPIDOS ----------
+        self.crear_accesos_rapidos()
         
         # ---------- MÓDULOS ----------
         self.crear_modulos()
@@ -202,7 +222,7 @@ class MenuPrincipal:
     # ------------------------------------------------------------
     def crear_encabezado(self):
         """Crea el encabezado con el título del sistema"""
-        frame_header = tk.Frame(self.frame_principal, bg='#003366', height=80)
+        frame_header = tk.Frame(self.frame_principal, bg=COLOR_HEADER, height=80)
         frame_header.pack(fill='x', pady=(0, 15))
         frame_header.pack_propagate(False)
         
@@ -210,8 +230,8 @@ class MenuPrincipal:
         tk.Label(
             frame_header,
             text="🏥 OpenHIS-UNLaM",
-            font=('Arial', 22, 'bold'),
-            bg='#003366',
+            font=('Segoe UI', 22, 'bold'),
+            bg=COLOR_HEADER,
             fg='white'
         ).pack(side='left', padx=20, pady=15)
         
@@ -219,8 +239,8 @@ class MenuPrincipal:
         tk.Label(
             frame_header,
             text="Sistema de Información Hospitalaria",
-            font=('Arial', 12),
-            bg='#003366',
+            font=('Segoe UI', 12),
+            bg=COLOR_HEADER,
             fg='#B0C4DE'
         ).pack(side='left', padx=5, pady=20)
         
@@ -228,8 +248,8 @@ class MenuPrincipal:
         self.label_fecha = tk.Label(
             frame_header,
             text="",
-            font=('Arial', 10),
-            bg='#003366',
+            font=('Segoe UI', 10),
+            bg=COLOR_HEADER,
             fg='#B0C4DE'
         )
         self.label_fecha.pack(side='right', padx=20)
@@ -249,34 +269,90 @@ class MenuPrincipal:
     # ------------------------------------------------------------
     def crear_bienvenida(self):
         """Crea el mensaje de bienvenida"""
-        frame_bienvenida = tk.Frame(self.frame_principal, bg='#f0f0f0')
+        frame_bienvenida = tk.Frame(self.frame_principal, bg=COLOR_FONDO)
         frame_bienvenida.pack(fill='x', pady=(0, 20))
         
         tk.Label(
             frame_bienvenida,
             text="Bienvenido al Sistema",
-            font=('Arial', 16, 'bold'),
-            bg='#f0f0f0',
-            fg='#003366'
+            font=('Segoe UI', 16, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_TEXTO
         ).pack()
         
         tk.Label(
             frame_bienvenida,
             text="Seleccione un módulo para comenzar a trabajar",
-            font=('Arial', 11),
-            bg='#f0f0f0',
-            fg='#666666'
+            font=('Segoe UI', 11),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
         ).pack(pady=3)
+
+    def crear_accesos_rapidos(self):
+        """Crea accesos directos para las tareas más frecuentes."""
+        frame = tk.LabelFrame(
+            self.frame_principal,
+            text=" Acciones frecuentes ",
+            font=('Segoe UI', 11, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_TEXTO,
+            padx=10,
+            pady=8
+        )
+        frame.pack(fill='x', pady=(0, 12))
+
+        acciones = [
+            ('➕ Nuevo paciente', 'Pacientes_def_app.pyw', 'Pacientes', '#1976D2'),
+            ('❤️ Registrar signos', 'Signos_vitales_def_app.pyw', 'Signos Vitales', '#E91E63'),
+            ('💊 Nueva prescripción', 'Prescripciones_def_app.pyw', 'Prescripciones', '#388E3C'),
+            ('📚 Tablas maestras', 'Tablas_maestras.pyw', 'Tablas Maestras', '#F57C00')
+        ]
+
+        for texto, archivo, nombre, color in acciones:
+            boton = tk.Button(
+                frame,
+                text=texto,
+                font=('Segoe UI', 10, 'bold'),
+                bg=color,
+                fg='white',
+                activebackground=self.oscurecer_color(color),
+                activeforeground='white',
+                relief='flat',
+                padx=14,
+                pady=7,
+                cursor='hand2',
+                command=lambda ruta=archivo, titulo=nombre: abrir_modulo(ruta, titulo)
+            )
+            boton.pack(side='left', padx=5, expand=True, fill='x')
     
     # ------------------------------------------------------------
     # MÓDULOS
     # ------------------------------------------------------------
     def crear_modulos(self):
         """Crea los botones de módulos organizados por categorías"""
+        frame_info = tk.Frame(self.frame_principal, bg=COLOR_FONDO)
+        frame_info.pack(fill='x', pady=(0, 4))
+
+        tk.Label(
+            frame_info,
+            text="Módulos del sistema",
+            font=('Segoe UI', 12, 'bold'),
+            bg=COLOR_FONDO,
+            fg=COLOR_TEXTO
+        ).pack(side='left')
+
+        tk.Label(
+            frame_info,
+            text="Ctrl+P pacientes  ·  Ctrl+S signos  ·  Ctrl+R recetas",
+            font=('Segoe UI', 9),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO
+        ).pack(side='right')
+
         # Canvas con scrollbar para muchos módulos
-        canvas = tk.Canvas(self.frame_principal, bg='#f0f0f0', highlightthickness=0)
+        canvas = tk.Canvas(self.frame_principal, bg=COLOR_FONDO, highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.frame_principal, orient='vertical', command=canvas.yview)
-        frame_scroll = tk.Frame(canvas, bg='#f0f0f0')
+        frame_scroll = tk.Frame(canvas, bg=COLOR_FONDO)
         
         frame_scroll.bind(
             '<Configure>',
@@ -299,18 +375,18 @@ class MenuPrincipal:
         frame_categoria = tk.LabelFrame(
             parent,
             text=f" {datos['icono']}  {nombre_categoria} ",
-            font=('Arial', 13, 'bold'),
-            bg='#f0f0f0',
+            font=('Segoe UI', 13, 'bold'),
+            bg=COLOR_FONDO,
             fg=datos['color'],
             padx=15,
             pady=15,
-            relief='groove',
-            bd=2
+            relief='flat',
+            bd=1
         )
         frame_categoria.pack(fill='x', padx=10, pady=10)
         
         # Frame para botones en grid
-        frame_botones = tk.Frame(frame_categoria, bg='#f0f0f0')
+        frame_botones = tk.Frame(frame_categoria, bg=COLOR_FONDO)
         frame_botones.pack(fill='x')
         
         # Crear botones de módulos (3 por fila)
@@ -342,20 +418,20 @@ class MenuPrincipal:
             estado = 'normal'  # Igual se puede hacer clic para ver el mensaje
         
         # Frame contenedor del botón
-        frame = tk.Frame(parent, bg='#f0f0f0', padx=8, pady=8)
+        frame = tk.Frame(parent, bg=COLOR_FONDO, padx=8, pady=8)
         frame.grid(row=fila, column=columna, sticky='nsew', padx=5, pady=5)
         
         # Botón principal
         btn = tk.Button(
             frame,
             text=f"{modulo['icono']}\n\n{modulo['nombre']}",
-            font=('Arial', 11, 'bold'),
+            font=('Segoe UI', 11, 'bold'),
             bg=bg_color,
             fg=fg_color,
             width=18,
             height=4,
-            relief='raised',
-            bd=3,
+            relief='flat',
+            bd=0,
             cursor='hand2' if disponible else 'arrow',
             command=lambda: abrir_modulo(modulo['archivo'], modulo['nombre'])
         )
@@ -378,9 +454,9 @@ class MenuPrincipal:
         tk.Label(
             frame,
             text=desc,
-            font=('Arial', 8),
-            bg='#f0f0f0',
-            fg='#666666',
+            font=('Segoe UI', 8),
+            bg=COLOR_FONDO,
+            fg=COLOR_SECUNDARIO,
             wraplength=160,
             justify='center'
         ).pack(pady=(3, 0))
@@ -412,7 +488,7 @@ class MenuPrincipal:
         tk.Label(
             frame_estado,
             text="✅ OpenHIS-UNLaM v0.3 - Sprint 3",
-            font=('Arial', 9),
+            font=('Segoe UI', 9),
             bg='#003366',
             fg='white'
         ).pack(side='left', padx=15)
@@ -421,7 +497,7 @@ class MenuPrincipal:
         tk.Label(
             frame_estado,
             text="🏥 Hospital Universitario San Justo",
-            font=('Arial', 9),
+            font=('Segoe UI', 9),
             bg='#003366',
             fg='#B0C4DE'
         ).pack(side='left', padx=15)
@@ -432,7 +508,7 @@ class MenuPrincipal:
             text="❌ Salir",
             bg='#f44336',
             fg='white',
-            font=('Arial', 9, 'bold'),
+            font=('Segoe UI', 9, 'bold'),
             padx=10,
             pady=2,
             command=self.salir
