@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?><sqlb_project><db path="Salud.db" readonly="0" foreign_keys="1" case_sensitive_like="0" temp_store="0" wal_autocheckpoint="1000" synchronous="2"/><attached/><window><main_tabs open="structure browser pragmas query" current="1"/></window><tab_structure><column_width id="0" width="300"/><column_width id="1" width="0"/><column_width id="2" width="100"/><column_width id="3" width="4097"/><column_width id="4" width="0"/><expanded_item id="0" parent="1"/><expanded_item id="1" parent="1"/><expanded_item id="2" parent="1"/><expanded_item id="3" parent="1"/></tab_structure><tab_browse><table title="Auditoria" custom_title="0" dock_id="1" table="4,9:mainAuditoria"/><dock_state state="000000ff00000000fd00000001000000020000024900000213fc0100000001fb000000160064006f0063006b00420072006f00770073006500310100000000000002490000011800ffffff000002490000000000000004000000040000000800000008fc00000000"/><default_encoding codec=""/><browse_table_settings><table schema="main" name="Auditoria" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="29"/><column index="2" value="69"/><column index="3" value="99"/><column index="4" value="91"/><column index="5" value="69"/><column index="6" value="72"/><column index="7" value="71"/><column index="8" value="103"/><column index="9" value="85"/><column index="10" value="71"/><column index="11" value="94"/><column index="12" value="111"/><column index="13" value="115"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table><table schema="main" name="Especialidades" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="29"/><column index="2" value="45"/><column index="3" value="117"/><column index="4" value="300"/><column index="5" value="42"/><column index="6" value="156"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table></browse_table_settings></tab_browse><tab_sql><sql name="SQL 1*">-- ================================================================
+-- CREACIÓN DE LA TABLA DE AUDITORÍA - OPENHIS-UNLaM
+-- ================================================================
+-- 
+-- Esta tabla guarda TODAS las acciones de los usuarios en el sistema.
+-- 
+-- TIPOS DE ACCIÓN:
+--   A = Alta (creación local)
+--   M = Modificación
+--   B = Baja lógica
+--   R = Reactivación
+--   L = Login
+--   X = Logout
+--   E = Exportación (datos enviados a otro sistema - FHIR)
+--   I = Importación (datos recibidos de otro sistema - FHIR)
+--   C = Conflicto (importación con problema)
+--
+-- CAMPOS PARA INTERCAMBIO FHIR:
+--   origen_sistema      → Nombre del hospital/sistema externo
+--   origen_id_externo   → ID del registro en el sistema externo
+--   payload_referencia  → Ruta al archivo XML/JSON intercambiado
+--
+-- EJECUTAR EN: DB Browser for SQLite → BD/Salud.db → Ejecutar SQL
+-- ================================================================
+
+-- ================================================================
+-- 1. CREAR LA TABLA
+-- ================================================================
+
+CREATE TABLE IF NOT EXISTS Auditoria (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id INTEGER NOT NULL,
+    usuario_nombre TEXT,
+    tabla_afectada TEXT NOT NULL,
+    registro_id INTEGER,
+    tipo_accion TEXT NOT NULL CHECK (tipo_accion IN ('A', 'M', 'B', 'R', 'L', 'X', 'E', 'I', 'C')),
+    descripcion TEXT,
+    datos_anteriores TEXT,
+    datos_nuevos TEXT,
+    fecha_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    origen_sistema TEXT,
+    origen_id_externo TEXT,
+    payload_referencia TEXT,
+    FOREIGN KEY (usuario_id) REFERENCES Usuarios(id)
+);
+
+
+-- ================================================================
+-- 2. CREAR ÍNDICES
+-- ================================================================
+
+-- Índice por usuario (para &quot;ver todo lo que hizo el usuario X&quot;)
+CREATE INDEX IF NOT EXISTS idx_auditoria_usuario 
+    ON Auditoria(usuario_id);
+
+-- Índice por tabla (para &quot;ver todo lo que pasó en Pacientes&quot;)
+CREATE INDEX IF NOT EXISTS idx_auditoria_tabla 
+    ON Auditoria(tabla_afectada);
+
+-- Índice por fecha (para &quot;ver qué pasó hoy&quot;, &quot;última semana&quot;, etc.)
+CREATE INDEX IF NOT EXISTS idx_auditoria_fecha 
+    ON Auditoria(fecha_hora);
+
+-- Índice por tipo de acción (para &quot;ver todas las importaciones&quot;)
+CREATE INDEX IF NOT EXISTS idx_auditoria_tipo 
+    ON Auditoria(tipo_accion);
+
+-- Índice compuesto (para &quot;ver el historial del registro X en la tabla Y&quot;)
+CREATE INDEX IF NOT EXISTS idx_auditoria_registro 
+    ON Auditoria(tabla_afectada, registro_id);
+
+-- Índice por hospital de origen (para &quot;ver todo el intercambio con Fleming&quot;)
+CREATE INDEX IF NOT EXISTS idx_auditoria_origen 
+    ON Auditoria(origen_sistema);
+
+-- Índice por ID externo (para &quot;buscar un registro por su ID en el otro hospital&quot;)
+CREATE INDEX IF NOT EXISTS idx_auditoria_externo 
+    ON Auditoria(origen_id_externo);
+
+
+-- ================================================================
+-- 3. VERIFICACIÓN
+-- ================================================================
+
+SELECT '=== ESTRUCTURA DE LA TABLA ===' as '';
+PRAGMA table_info(Auditoria);
+
+
+SELECT '=== ÍNDICES CREADOS ===' as '';
+SELECT name as 'Índice', tbl_name as 'Tabla'
+FROM sqlite_master 
+WHERE type='index' 
+AND name LIKE 'idx_auditoria%'
+ORDER BY name;
+
+
+SELECT '=== ESTADO INICIAL ===' as '';
+SELECT COUNT(*) as 'Total registros en Auditoria' FROM Auditoria;
+
+
+SELECT '=== TIPOS DE ACCIÓN ===' as '';
+SELECT 
+    'A' as 'Tipo', 'Alta' as 'Descripción'
+UNION ALL SELECT 'M', 'Modificación'
+UNION ALL SELECT 'B', 'Baja'
+UNION ALL SELECT 'R', 'Reactivación'
+UNION ALL SELECT 'L', 'Login'
+UNION ALL SELECT 'X', 'Logout'
+UNION ALL SELECT 'E', 'Exportación (FHIR)'
+UNION ALL SELECT 'I', 'Importación (FHIR)'
+UNION ALL SELECT 'C', 'Conflicto';
+
+
+SELECT '=== FIN DEL SCRIPT ===' as '';
+</sql><current_tab id="0"/></tab_sql></sqlb_project>
