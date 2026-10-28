@@ -20,6 +20,7 @@
 import sqlite3
 import tkinter as tk
 from tkinter import messagebox, ttk
+from pathlib import Path
 
 # ================================================================
 # CAPA DE ACCESO A DATOS (BACKEND)
@@ -27,7 +28,8 @@ from tkinter import messagebox, ttk
 
 def conectar_bd():
     """Establece conexión con la base de datos Salud.db"""
-    return sqlite3.connect('BD/Salud.db')
+    ruta_bd = Path(__file__).resolve().parent / 'DB' / 'Salud.db'
+    return sqlite3.connect(ruta_bd)
 
 
 # ---------- OPERACIONES CRUD DE PACIENTES ----------
