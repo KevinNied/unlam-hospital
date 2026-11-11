@@ -1,0 +1,166 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "patient-7",
+        "active": true,
+        "identifier": [
+          {
+            "system": "urn:openhis:pacientes",
+            "value": "44895843"
+          }
+        ],
+        "name": [
+          {
+            "family": "Simpson",
+            "given": [
+              "Bart"
+            ]
+          }
+        ],
+        "gender": "male",
+        "birthDate": "1999-01-01"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-4-8480-6",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-7"
+        },
+        "effectiveDateTime": "2026-10-28 00:29:22",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8480-6",
+              "display": "Systolic blood pressure"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 21,
+          "unit": "mm[Hg]"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-4-8462-4",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-7"
+        },
+        "effectiveDateTime": "2026-10-28 00:29:22",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8462-4",
+              "display": "Diastolic blood pressure"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 55,
+          "unit": "mm[Hg]"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-4-8867-4",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-7"
+        },
+        "effectiveDateTime": "2026-10-28 00:29:22",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8867-4",
+              "display": "Heart rate"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 90,
+          "unit": "/min"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Practitioner",
+        "id": "practitioner-3",
+        "active": true,
+        "identifier": [
+          {
+            "system": "urn:openhis:profesionales",
+            "value": "35734835"
+          }
+        ],
+        "name": [
+          {
+            "family": "Hibbert",
+            "given": [
+              "Julius"
+            ]
+          }
+        ],
+        "gender": "male",
+        "qualification": [
+          {
+            "identifier": [
+              {
+                "value": "51356"
+              }
+            ]
+          }
+        ],
+        "birthDate": "1989-04-27"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "medrx-3",
+        "status": "active",
+        "intent": "order",
+        "subject": {
+          "reference": "Patient/patient-7"
+        },
+        "requester": {
+          "reference": "Practitioner/practitioner-3"
+        },
+        "medicationCodeableConcept": {
+          "text": "Losartán",
+          "coding": [
+            {
+              "system": "urn:openhis:farmacos",
+              "code": "ATC-002",
+              "display": "Losartán"
+            }
+          ]
+        },
+        "dosageInstruction": [
+          {
+            "text": "10g c/8hs",
+            "route": {
+              "text": "oral"
+            }
+          }
+        ],
+        "authoredOn": "2026-10-28 00:26:08"
+      }
+    }
+  ]
+}

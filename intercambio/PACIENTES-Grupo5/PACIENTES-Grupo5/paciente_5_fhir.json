@@ -1,0 +1,219 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "patient-5",
+        "active": true,
+        "identifier": [
+          {
+            "system": "urn:openhis:pacientes",
+            "value": "35229513"
+          }
+        ],
+        "name": [
+          {
+            "family": "PEREZ",
+            "given": [
+              "JUAN PEREZ"
+            ]
+          }
+        ],
+        "gender": "male",
+        "birthDate": "2018-05-04"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-4-8480-6",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-5"
+        },
+        "effectiveDateTime": "2026-09-01 23:54:56",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8480-6",
+              "display": "Systolic blood pressure"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 56,
+          "unit": "mm[Hg]"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-4-8462-4",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-5"
+        },
+        "effectiveDateTime": "2026-09-01 23:54:56",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8462-4",
+              "display": "Diastolic blood pressure"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 78,
+          "unit": "mm[Hg]"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-4-8867-4",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-5"
+        },
+        "effectiveDateTime": "2026-09-01 23:54:56",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8867-4",
+              "display": "Heart rate"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 77,
+          "unit": "/min"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-4-8310-5",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-5"
+        },
+        "effectiveDateTime": "2026-09-01 23:54:56",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8310-5",
+              "display": "Body temperature"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 35.0,
+          "unit": "Cel"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-4-59408-5",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-5"
+        },
+        "effectiveDateTime": "2026-09-01 23:54:56",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "59408-5",
+              "display": "Oxygen saturation"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 2,
+          "unit": "%"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Practitioner",
+        "id": "practitioner-1",
+        "active": true,
+        "identifier": [
+          {
+            "system": "urn:openhis:profesionales",
+            "value": "12345678"
+          }
+        ],
+        "name": [
+          {
+            "family": "González",
+            "given": [
+              "María"
+            ]
+          }
+        ],
+        "gender": "female",
+        "qualification": [
+          {
+            "identifier": [
+              {
+                "value": "MN 12345"
+              }
+            ]
+          }
+        ],
+        "birthDate": "1980-05-15"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "medrx-3",
+        "status": "active",
+        "intent": "order",
+        "subject": {
+          "reference": "Patient/patient-5"
+        },
+        "requester": {
+          "reference": "Practitioner/practitioner-1"
+        },
+        "medicationCodeableConcept": {
+          "text": "Amoxicilina",
+          "coding": [
+            {
+              "system": "urn:openhis:farmacos",
+              "code": "ATC-003",
+              "display": "Amoxicilina"
+            }
+          ]
+        },
+        "dosageInstruction": [
+          {
+            "text": "2 6",
+            "route": {
+              "text": "11"
+            }
+          }
+        ],
+        "authoredOn": "2026-09-09 01:40:04",
+        "dispenseRequest": {
+          "quantity": {
+            "value": 8
+          }
+        }
+      }
+    }
+  ]
+}

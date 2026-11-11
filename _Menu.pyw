@@ -29,6 +29,9 @@ import os
 import hashlib
 from datetime import datetime
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+os.chdir(BASE_DIR)
+
 # ----------------------------------------------------------------
 # IMPORTAR FUNCIONES DE AUDITORÍA
 # ----------------------------------------------------------------
@@ -46,7 +49,7 @@ from Auditoria_utiles import (
 # ================================================================
 
 def conectar_bd():
-    return sqlite3.connect('BD/Salud.db')
+    return sqlite3.connect(os.path.join(BASE_DIR, 'BD', 'Salud.db'))
 
 
 def hashear_password(password):
@@ -111,8 +114,12 @@ ROLES_PERMITIDOS = {
     'Pacientes': ['admin', 'medico', 'enfermero', 'administrativo'],
     'Profesionales': ['admin', 'administrativo'],
     'Turnos': ['admin', 'administrativo'],
+    'Agenda y recordatorios': ['admin', 'administrativo'],
     'Signos Vitales': ['admin', 'medico', 'enfermero'],
     'Prescripciones': ['admin', 'medico'],
+    'Consulta de intervenciones': ['admin', 'medico', 'enfermero'],
+    'Interoperabilidad FHIR': ['admin'],
+    'Gestión DICOM': ['admin'],
     'Historia Clínica': ['admin', 'medico', 'enfermero'],
     'Tablas Maestras': ['admin'],
     'Exportar XML': ['admin'],
@@ -130,8 +137,10 @@ MODULOS = {
              'descripcion': 'Gestión de pacientes', 'icono': '👤'},
             {'nombre': 'Profesionales', 'archivo': '_Profesionales_def_app.pyw',
              'descripcion': 'Gestión de profesionales', 'icono': '👨‍⚕️'},
-            {'nombre': 'Turnos', 'archivo': None,
-             'descripcion': 'Gestión de turnos (próximamente)', 'icono': '📅'}
+            {'nombre': 'Turnos', 'archivo': '_Gestion_turnos.pyw',
+             'descripcion': 'Registro y gestión de turnos', 'icono': '📅'},
+            {'nombre': 'Agenda y recordatorios', 'archivo': '_Asignacion_Recordatorios.pyw',
+             'descripcion': 'Asignación sugerida, recordatorios y asistencia', 'icono': '⏰'}
         ]
     },
     'CLÍNICA': {
@@ -142,8 +151,10 @@ MODULOS = {
              'descripcion': 'Registro de signos vitales', 'icono': '❤️'},
             {'nombre': 'Prescripciones', 'archivo': '_Prescripciones_def_app.pyw',
              'descripcion': 'Prescripción de medicamentos', 'icono': '💊'},
-            {'nombre': 'Historia Clínica', 'archivo': None,
-             'descripcion': 'HCE (próximamente)', 'icono': '📋'}
+            {'nombre': 'Consulta de intervenciones', 'archivo': '_Consulta_intervenciones.pyw',
+             'descripcion': 'Consulta de intervenciones clínicas', 'icono': '🩺'},
+            {'nombre': 'Historia Clínica', 'archivo': '_HCE.pyw',
+             'descripcion': 'Consulta y gestión de la historia clínica', 'icono': '📋'}
         ]
     },
     'TABLAS MAESTRAS': {
@@ -158,10 +169,10 @@ MODULOS = {
         'color': '#E91E63',
         'icono': '🟥',
         'modulos': [
-            {'nombre': 'Exportar XML', 'archivo': None,
-             'descripcion': 'Exportar a FHIR XML', 'icono': '📤'},
-            {'nombre': 'Importar XML', 'archivo': None,
-             'descripcion': 'Importar datos externos', 'icono': '🏥'}
+            {'nombre': 'Interoperabilidad FHIR', 'archivo': '_Interoperabilidad_FHIR.pyw',
+             'descripcion': 'Importación y exportación de recursos FHIR', 'icono': '🔄'},
+            {'nombre': 'Gestión DICOM', 'archivo': '_Herramientas_Dicom_Visor.pyw',
+             'descripcion': 'Conversión y anonimización de imágenes médicas', 'icono': '🩻'}
         ]
     },
     'SEGURIDAD': {
@@ -504,7 +515,7 @@ class MenuPrincipal:
             return
 
         try:
-            subprocess.Popen([sys.executable, archivo])
+            subprocess.Popen([sys.executable, os.path.join(BASE_DIR, archivo)], cwd=BASE_DIR)
             print(f"[INFO] Módulo abierto: {archivo}")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo abrir el módulo:\n{e}")
@@ -515,7 +526,7 @@ class MenuPrincipal:
         frame.pack(fill='x', pady=(15, 0))
         frame.pack_propagate(False)
 
-        tk.Label(frame, text="✅ OpenHIS-UNLaM v0.5 - Sprint 3 + Auditoría",
+        tk.Label(frame, text="✅ OpenHIS-UNLaM | Sistema de Información Hospitalaria",
                 font=('Arial', 9), bg='#003366', fg='white').pack(side='left', padx=15)
 
         # Contador de auditoría

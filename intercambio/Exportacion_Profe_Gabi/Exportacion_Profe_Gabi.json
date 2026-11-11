@@ -1,0 +1,344 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "patient-1",
+        "active": true,
+        "identifier": [
+          {
+            "system": "urn:openhis:pacientes",
+            "value": "23857335"
+          }
+        ],
+        "name": [
+          {
+            "family": "Wagner",
+            "given": [
+              "Gabriel Enrique"
+            ]
+          }
+        ],
+        "gender": "male",
+        "birthDate": "1974-11-21"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-1-8480-6",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-1"
+        },
+        "effectiveDateTime": "2026-09-02 01:43:33",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8480-6",
+              "display": "Systolic blood pressure"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 140,
+          "unit": "mm[Hg]"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-1-8462-4",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-1"
+        },
+        "effectiveDateTime": "2026-09-02 01:43:33",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8462-4",
+              "display": "Diastolic blood pressure"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 80,
+          "unit": "mm[Hg]"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-1-8867-4",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-1"
+        },
+        "effectiveDateTime": "2026-09-02 01:43:33",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8867-4",
+              "display": "Heart rate"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 85,
+          "unit": "/min"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-1-8310-5",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-1"
+        },
+        "effectiveDateTime": "2026-09-02 01:43:33",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8310-5",
+              "display": "Body temperature"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 36.5,
+          "unit": "Cel"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-1-59408-5",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-1"
+        },
+        "effectiveDateTime": "2026-09-02 01:43:33",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "59408-5",
+              "display": "Oxygen saturation"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 98,
+          "unit": "%"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-2-8480-6",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-1"
+        },
+        "effectiveDateTime": "2026-09-02 01:44:26",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8480-6",
+              "display": "Systolic blood pressure"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 135,
+          "unit": "mm[Hg]"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-2-8462-4",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-1"
+        },
+        "effectiveDateTime": "2026-09-02 01:44:26",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8462-4",
+              "display": "Diastolic blood pressure"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 85,
+          "unit": "mm[Hg]"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-2-8867-4",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-1"
+        },
+        "effectiveDateTime": "2026-09-02 01:44:26",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8867-4",
+              "display": "Heart rate"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 90,
+          "unit": "/min"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-2-8310-5",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-1"
+        },
+        "effectiveDateTime": "2026-09-02 01:44:26",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8310-5",
+              "display": "Body temperature"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 37.0,
+          "unit": "Cel"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-2-59408-5",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-1"
+        },
+        "effectiveDateTime": "2026-09-02 01:44:26",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "59408-5",
+              "display": "Oxygen saturation"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 96,
+          "unit": "%"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Practitioner",
+        "id": "practitioner-1",
+        "active": true,
+        "identifier": [
+          {
+            "system": "urn:openhis:profesionales",
+            "value": "12345678"
+          }
+        ],
+        "name": [
+          {
+            "family": "González",
+            "given": [
+              "María"
+            ]
+          }
+        ],
+        "gender": "female",
+        "qualification": [
+          {
+            "identifier": [
+              {
+                "value": "MN 12345"
+              }
+            ]
+          }
+        ],
+        "birthDate": "1980-05-15"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "medrx-1",
+        "status": "active",
+        "intent": "order",
+        "subject": {
+          "reference": "Patient/patient-1"
+        },
+        "requester": {
+          "reference": "Practitioner/practitioner-1"
+        },
+        "medicationCodeableConcept": {
+          "text": "Losartán",
+          "coding": [
+            {
+              "system": "urn:openhis:farmacos",
+              "code": "ATC-002",
+              "display": "Losartán"
+            }
+          ]
+        },
+        "dosageInstruction": [
+          {
+            "text": "400mg c/8 h",
+            "route": {
+              "text": "oral"
+            }
+          }
+        ],
+        "authoredOn": "2026-09-09 00:58:36",
+        "dispenseRequest": {
+          "quantity": {
+            "value": 1
+          }
+        },
+        "note": [
+          {
+            "text": "TOMAR EN AYUNAS"
+          }
+        ]
+      }
+    }
+  ]
+}
