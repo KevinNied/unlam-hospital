@@ -21,6 +21,8 @@ import sqlite3
 import tkinter as tk
 from tkinter import messagebox, ttk
 from datetime import datetime
+import re
+import math
 
 # ----------------------------------------------------------------
 # IMPORTAR FUNCIONES DE AUDITORÍA
@@ -99,13 +101,71 @@ def obtener_profesionales_selector():
         return []
 
 
+def solo_enteros(valor):
+    return re.fullmatch(r'[0-9]*', valor) is not None
+
+
+def solo_decimal(valor):
+    return re.fullmatch(r'[0-9]*(?:[.,][0-9]*)?', valor) is not None
+
+
+def validar_datos_signos(datos):
+    limpio = dict(datos)
+    motivo = str(datos.get('motivo_consulta') or '').strip()
+    if not motivo:
+        raise ValueError('El motivo de consulta es obligatorio.')
+    limpio['motivo_consulta'] = motivo
+    campos = {
+        'presion_sistolica': 'Presión sistólica',
+        'presion_diastolica': 'Presión diastólica',
+        'frecuencia_cardiaca': 'Frecuencia cardíaca',
+        'saturacion_oxigeno': 'Saturación de oxígeno',
+        'temperatura': 'Temperatura'
+    }
+    for campo, etiqueta in campos.items():
+        dato = datos.get(campo)
+        if dato is None or str(dato).strip() == '':
+            limpio[campo] = None
+            continue
+        valor = str(dato).strip()
+        if campo == 'temperatura':
+            if not solo_decimal(valor):
+                raise ValueError(f'{etiqueta}: ingrese un número decimal no negativo.')
+            try:
+                numero = float(valor.replace(',', '.'))
+            except ValueError:
+                raise ValueError(f'{etiqueta}: ingrese un número válido.') from None
+            if not math.isfinite(numero):
+                raise ValueError(f'{etiqueta}: ingrese un número finito.')
+        else:
+            if not solo_enteros(valor):
+                raise ValueError(f'{etiqueta}: ingrese un número entero no negativo.')
+            numero = int(valor)
+            if numero > 2**63 - 1:
+                raise ValueError(f'{etiqueta}: número demasiado grande.')
+            if campo == 'saturacion_oxigeno' and numero > 100:
+                raise ValueError('La saturación de oxígeno debe estar entre 0 y 100 %.')
+        limpio[campo] = numero
+    return limpio
+
+
 # -------------------- CRUD DE SIGNOS VITALES --------------------
 
 def registrar_signos_vitales(paciente_id, medico_id, datos):
     """HU-03: Registrar signos vitales (CREATE)"""
+    conexion = None
     try:
+        datos = validar_datos_signos(datos)
         conexion = conectar_bd()
         cursor = conexion.cursor()
+        cursor.execute('BEGIN IMMEDIATE')
+        for tabla, identificador, etiqueta in (
+            ('Pacientes', paciente_id, 'paciente'),
+            ('Profesionales', medico_id, 'médico')
+        ):
+            cursor.execute(f'SELECT 1 FROM {tabla} WHERE id = ? AND activo = 1', (identificador,))
+            if cursor.fetchone() is None:
+                raise ValueError(f'Seleccione un {etiqueta} activo y válido.')
         
         cursor.execute("""
             INSERT INTO SignosVitales 
@@ -143,9 +203,14 @@ def registrar_signos_vitales(paciente_id, medico_id, datos):
         
         return True, nuevo_id
         
+    except ValueError as e:
+        return False, str(e)
     except Exception as e:
         print(f"[ERROR] Error en registrar_signos_vitales: {e}")
         return False, f"❌ Error: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
 
 
 def listar_signos_vitales(activos=True, limite=100):
@@ -554,7 +619,7 @@ class AppSignosVitales:
         registros = listar_signos_vitales(activos=activos)
         
         for r in registros:
-            presion = f"{r[5]}/{r[6]}" if r[5] and r[6] else '-'
+            presion = f"{r[5]}/{r[6]}" if r[5] is not None and r[6] is not None else '-'
             estado = "✅ Activo" if r[11] == 1 else "🚫 Anulado"
             
             self.tree.insert('', 'end', values=(
@@ -562,7 +627,7 @@ class AppSignosVitales:
                 r[2] or 'N/A', r[3] or 'N/A',
                 r[4] or 'N/A',
                 presion,
-                r[7] or '-', r[8] or '-', r[9] or '-',
+                r[7] if r[7] is not None else '-', r[8] if r[8] is not None else '-', r[9] if r[9] is not None else '-',
                 r[10] or '-',
                 estado
             ))
@@ -620,11 +685,11 @@ class AppSignosVitales:
             ('👨‍⚕️ Médico', signo['medico_nombre']),
             ('📋 DNI Médico', signo['medico_dni']),
             ('📅 Fecha/Hora', signo['fecha_hora']),
-            ('🩸 Presión Sistólica', f"{signo['presion_sistolica']} mmHg" if signo['presion_sistolica'] else '-'),
-            ('🩸 Presión Diastólica', f"{signo['presion_diastolica']} mmHg" if signo['presion_diastolica'] else '-'),
-            ('❤️ Frecuencia Cardíaca', f"{signo['frecuencia_cardiaca']} lpm" if signo['frecuencia_cardiaca'] else '-'),
-            ('🌡️ Temperatura', f"{signo['temperatura']} °C" if signo['temperatura'] else '-'),
-            ('💨 Saturación O₂', f"{signo['saturacion_oxigeno']}%" if signo['saturacion_oxigeno'] else '-'),
+            ('🩸 Presión Sistólica', f"{signo['presion_sistolica']} mmHg" if signo['presion_sistolica'] is not None else '-'),
+            ('🩸 Presión Diastólica', f"{signo['presion_diastolica']} mmHg" if signo['presion_diastolica'] is not None else '-'),
+            ('❤️ Frecuencia Cardíaca', f"{signo['frecuencia_cardiaca']} lpm" if signo['frecuencia_cardiaca'] is not None else '-'),
+            ('🌡️ Temperatura', f"{signo['temperatura']} °C" if signo['temperatura'] is not None else '-'),
+            ('💨 Saturación O₂', f"{signo['saturacion_oxigeno']}%" if signo['saturacion_oxigeno'] is not None else '-'),
             ('📝 Motivo Consulta', signo['motivo_consulta'] or '-')
         ]
         
@@ -723,7 +788,7 @@ class AppSignosVitales:
         
         tk.Label(
             ventana,
-            text="Los campos con * son obligatorios",
+            text="Los campos con (*) son obligatorios",
             font=('Arial', 9),
             bg='#f0f0f0',
             fg='#666666'
@@ -752,23 +817,21 @@ class AppSignosVitales:
         # Paciente
         frame = tk.Frame(frame_campos, bg='#f0f0f0')
         frame.pack(fill='x', pady=4)
-        tk.Label(frame, text="Paciente *:", width=22, anchor='w',
+        tk.Label(frame, text="Paciente (*):", width=22, anchor='w',
                 bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
         valores_pacientes = [f"{p[0]} - {p[2]} {p[3]} (DNI: {p[1]})" for p in pacientes]
         combo_paciente = ttk.Combobox(frame, width=38, font=('Arial', 10), state='readonly')
         combo_paciente['values'] = valores_pacientes
-        combo_paciente.current(0)
         combo_paciente.pack(side='right')
         
         # Médico
         frame = tk.Frame(frame_campos, bg='#f0f0f0')
         frame.pack(fill='x', pady=4)
-        tk.Label(frame, text="Médico *:", width=22, anchor='w',
+        tk.Label(frame, text="Médico (*):", width=22, anchor='w',
                 bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
         valores_prof = [f"{p[0]} - {p[2]} {p[3]} ({p[4] or 'Sin especialidad'})" for p in profesionales]
         combo_medico = ttk.Combobox(frame, width=38, font=('Arial', 10), state='readonly')
         combo_medico['values'] = valores_prof
-        combo_medico.current(0)
         combo_medico.pack(side='right')
         
         tk.Frame(frame_campos, height=2, bg='#cccccc').pack(fill='x', pady=10)
@@ -783,7 +846,7 @@ class AppSignosVitales:
             ('Frecuencia Cardíaca (lpm)', 'fc', 1, 0),
             ('Temperatura (°C)', 'temp', 1, 1),
             ('Saturación O₂ (%)', 'sat', 2, 0),
-            ('Motivo de Consulta *', 'motivo', 2, 1)
+            ('Motivo de Consulta (*)', 'motivo', 2, 1)
         ]
         
         entries = {}
@@ -793,6 +856,9 @@ class AppSignosVitales:
             tk.Label(frame, text=label_text, width=22, anchor='w',
                     bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
             entry = tk.Entry(frame, width=18, font=('Arial', 10))
+            if key != 'motivo':
+                funcion = solo_decimal if key == 'temp' else solo_enteros
+                entry.configure(validate='key', validatecommand=(ventana.register(funcion), '%P'))
             entry.pack(side='right')
             entries[key] = entry
         
@@ -808,19 +874,15 @@ class AppSignosVitales:
                 messagebox.showerror("Error", "Seleccione paciente y médico válidos.")
                 return
             
-            try:
-                datos = {
-                    'presion_sistolica': int(entries['sistolica'].get()) if entries['sistolica'].get().strip() else None,
-                    'presion_diastolica': int(entries['diastolica'].get()) if entries['diastolica'].get().strip() else None,
-                    'frecuencia_cardiaca': int(entries['fc'].get()) if entries['fc'].get().strip() else None,
-                    'temperatura': float(entries['temp'].get()) if entries['temp'].get().strip() else None,
-                    'saturacion_oxigeno': int(entries['sat'].get()) if entries['sat'].get().strip() else None,
-                    'motivo_consulta': entries['motivo'].get().strip()
-                }
-            except ValueError:
-                messagebox.showerror("Error", "Ingrese valores numéricos válidos.")
-                return
-            
+            datos = {
+                'presion_sistolica': entries['sistolica'].get(),
+                'presion_diastolica': entries['diastolica'].get(),
+                'frecuencia_cardiaca': entries['fc'].get(),
+                'temperatura': entries['temp'].get(),
+                'saturacion_oxigeno': entries['sat'].get(),
+                'motivo_consulta': entries['motivo'].get()
+            }
+
             resultado, info = registrar_signos_vitales(paciente_id, medico_id, datos)
             if resultado:
                 messagebox.showinfo("Éxito", f"✅ Signos vitales registrados.\nID: {info}")
@@ -857,13 +919,14 @@ class AppSignosVitales:
         
         tk.Label(frame, text="DNI:", font=('Arial', 11), bg='#f0f0f0').pack(side='left', padx=10)
         entry_dni = tk.Entry(frame, font=('Arial', 11), width=20)
+        entry_dni.configure(validate='key', validatecommand=(ventana.register(solo_enteros), '%P'))
         entry_dni.pack(side='left', padx=10)
         entry_dni.focus()
         
         def buscar():
             dni = entry_dni.get().strip()
-            if not dni:
-                messagebox.showerror("Error", "Ingrese un DNI.")
+            if not dni or not solo_enteros(dni):
+                messagebox.showerror("Error", "Ingrese un DNI numérico.")
                 return
             
             paciente = obtener_paciente_por_dni(dni)
@@ -939,14 +1002,14 @@ class AppSignosVitales:
         registros = buscar_signos_por_paciente(paciente[0], activos=None)
         
         for r in registros:
-            presion = f"{r[3]}/{r[4]}" if r[3] and r[4] else '-'
+            presion = f"{r[3]}/{r[4]}" if r[3] is not None and r[4] is not None else '-'
             estado = "✅ Activo" if r[9] == 1 else "🚫 Anulado"
             tree.insert('', 'end', values=(
                 r[0], r[1][:16] if r[1] else '',
                 r[2] or 'N/A',
                 presion,
-                r[5] or '-', r[6] or '-', r[7] or '-',
-                r[8] or '-',
+                r[5] if r[5] is not None else '-', r[6] if r[6] is not None else '-', r[7] if r[7] is not None else '-',
+                r[8] if r[8] is not None else '-',
                 estado
             ))
         

@@ -8,7 +8,29 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
 
-RUTA_BD = Path("BD/Salud.db")
+BASE_DIR = Path(__file__).resolve().parent
+RUTA_BD = BASE_DIR / "BD" / "Salud.db"
+RUTA_SESION = BASE_DIR / ".sesion"
+ROLES_PERMITIDOS = {"admin", "medico", "enfermero"}
+
+
+def verificar_acceso(conexion):
+    try:
+        usuario_id = int(RUTA_SESION.read_text(encoding="utf-8").split("|", 1)[0])
+    except (OSError, ValueError):
+        raise PermissionError("Inicie sesión desde el menú principal.") from None
+    usuario = conexion.execute(
+        "SELECT id, nombre_completo, rol FROM Usuarios WHERE id = ? AND activo = 1",
+        (usuario_id,)
+    ).fetchone()
+    if not usuario or usuario[2] not in ROLES_PERMITIDOS:
+        raise PermissionError("No tiene permisos para consultar intervenciones.")
+    return usuario
+
+
+def valor_clinico(valor):
+    return "-" if valor is None else valor
+
 
 def conectar_bd():
     if not RUTA_BD.exists():
@@ -16,18 +38,22 @@ def conectar_bd():
             f"No se encontró {RUTA_BD}. Ejecute el programa desde la carpeta principal "
             "del proyecto, donde se encuentra la carpeta BD."
         )
-    return sqlite3.connect(str(RUTA_BD))
+    conexion = sqlite3.connect(RUTA_BD.as_uri() + "?mode=rw", uri=True)
+    conexion.execute("PRAGMA foreign_keys = ON")
+    return conexion
 
 def obtener_pacientes(texto=""):
     conexion = conectar_bd()
     try:
         cursor = conexion.cursor()
-        patron = f"%{texto.strip()}%"
+        verificar_acceso(conexion)
+        texto = texto.strip().replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        patron = f"%{texto}%"
         cursor.execute("""
             SELECT id, dni, apellido, nombre, fecha_nacimiento, sexo
             FROM Pacientes
             WHERE activo = 1
-              AND (dni LIKE ? OR apellido LIKE ? OR nombre LIKE ?)
+              AND (dni LIKE ? ESCAPE '!' OR apellido LIKE ? ESCAPE '!' OR nombre LIKE ? ESCAPE '!')
             ORDER BY apellido, nombre
         """, (patron, patron, patron))
         return cursor.fetchall()
@@ -37,7 +63,11 @@ def obtener_pacientes(texto=""):
 def obtener_intervenciones(paciente_id):
     conexion = conectar_bd()
     try:
+        conexion.execute("BEGIN IMMEDIATE")
+        usuario = verificar_acceso(conexion)
         cursor = conexion.cursor()
+        if not cursor.execute("SELECT 1 FROM Pacientes WHERE id = ? AND activo = 1", (paciente_id,)).fetchone():
+            raise ValueError("El paciente no existe o está inactivo.")
         cursor.execute("""
             SELECT sv.id, sv.fecha_hora, sv.presion_sistolica,
                    sv.presion_diastolica, sv.frecuencia_cardiaca,
@@ -45,7 +75,7 @@ def obtener_intervenciones(paciente_id):
                    sv.motivo_consulta, p.nombre, p.apellido
             FROM SignosVitales sv
             LEFT JOIN Profesionales p ON p.id = sv.medico_id
-            WHERE sv.paciente_id = ?
+            WHERE sv.paciente_id = ? AND sv.activo = 1
             ORDER BY sv.fecha_hora DESC
         """, (paciente_id,))
         signos = cursor.fetchall()
@@ -57,10 +87,17 @@ def obtener_intervenciones(paciente_id):
             FROM Prescripciones pr
             LEFT JOIN Farmacos f ON f.id = pr.farmaco_id
             LEFT JOIN Profesionales prof ON prof.id = pr.profesional_id
-            WHERE pr.paciente_id = ?
+            WHERE pr.paciente_id = ? AND pr.activo = 1
             ORDER BY pr.fecha_prescripcion DESC
         """, (paciente_id,))
         prescripciones = cursor.fetchall()
+        # C es el código utilizado para consultas también en _HCE.pyw.
+        cursor.execute("""
+            INSERT INTO Auditoria (usuario_id, usuario_nombre, tabla_afectada,
+                registro_id, tipo_accion, descripcion, origen_sistema)
+            VALUES (?, ?, 'Pacientes', ?, 'C', 'Consulta de intervenciones clínicas', 'OpenHIS-UNLaM')
+        """, (usuario[0], usuario[1], paciente_id))
+        conexion.commit()
         return signos, prescripciones
     finally:
         conexion.close()
@@ -102,7 +139,7 @@ class AppConsulta:
 
         ttk.Label(izquierda, text="Resultados").pack(anchor="w", pady=(0, 5))
         self.lista = ttk.Treeview(izquierda, columns=("dni", "apellido", "nombre"),
-                                  show="headings", height=18)
+                                  show="headings", height=18, selectmode="browse")
         for col, titulo, ancho in [
             ("dni", "DNI", 95), ("apellido", "Apellido", 120), ("nombre", "Nombre", 110)
         ]:
@@ -155,6 +192,10 @@ class AppConsulta:
         return tv
 
     def buscar_pacientes(self):
+        self.pacientes = []
+        self.lista.delete(*self.lista.get_children())
+        self._vaciar_tablas()
+        self.lbl_paciente.config(text="Seleccione un paciente para ver sus intervenciones.")
         try:
             self.pacientes = obtener_pacientes(self.var_busqueda.get())
             self.lista.delete(*self.lista.get_children())
@@ -168,10 +209,14 @@ class AppConsulta:
     def seleccionar_paciente(self, _evento=None):
         seleccion = self.lista.selection()
         if not seleccion:
+            self._vaciar_tablas()
+            self.lbl_paciente.config(text="Seleccione un paciente para ver sus intervenciones.")
             return
         paciente_id = int(seleccion[0])
         fila = next((p for p in self.pacientes if p[0] == paciente_id), None)
         if not fila:
+            self._vaciar_tablas()
+            self.lbl_paciente.config(text="Seleccione un paciente válido.")
             return
         self._vaciar_tablas()
         try:
@@ -181,11 +226,11 @@ class AppConsulta:
                      f"Nacimiento: {fila[4]} | Sexo: {fila[5]}"
             )
             for s in signos:
-                pa = f"{s[2] or '-'} / {s[3] or '-'}"
+                pa = f"{valor_clinico(s[2])} / {valor_clinico(s[3])}"
                 profesional = " ".join(x for x in (s[8], s[9]) if x) or "No informado"
                 self.tv_signos.insert("", "end", values=(
-                    s[1] or "", pa, s[4] or "-", s[5] if s[5] is not None else "-",
-                    s[6] or "-", s[7] or "", profesional
+                    s[1] or "", pa, valor_clinico(s[4]), valor_clinico(s[5]),
+                    valor_clinico(s[6]), s[7] or "", profesional
                 ))
             for r in rx:
                 profesional = " ".join(x for x in (r[8], r[9]) if x) or "No informado"
@@ -194,6 +239,8 @@ class AppConsulta:
                     r[5] or "", r[6] or "", r[7] or "", profesional
                 ))
         except Exception as exc:
+            self._vaciar_tablas()
+            self.lbl_paciente.config(text="No se pudo consultar al paciente.")
             messagebox.showerror("Error al consultar", str(exc), parent=self.root)
 
     def _vaciar_tablas(self):

@@ -21,7 +21,11 @@
 import sqlite3
 import tkinter as tk
 from tkinter import messagebox, ttk
-from datetime import datetime
+from datetime import datetime, date
+from pathlib import Path
+from html import escape
+import re
+from contextlib import closing
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 import os
@@ -30,6 +34,7 @@ import webbrowser
 # ----------------------------------------------------------------
 # IMPORTAR FUNCIONES DE AUDITORÍA
 # ----------------------------------------------------------------
+import Auditoria_utiles as auditoria
 from Auditoria_utiles import (
     auditar_alta,
     auditar_baja,
@@ -42,8 +47,11 @@ from Auditoria_utiles import (
 # CONFIGURACIÓN
 # ================================================================
 
-CARPETA_RECETAS = "recetas"
-CARPETA_REPORTES = "reportes"
+BASE_DIR = Path(__file__).resolve().parent
+auditoria.RUTA_BD = str(BASE_DIR / "BD" / "Salud.db")
+auditoria.RUTA_SESION = str(BASE_DIR / ".sesion")
+CARPETA_RECETAS = str(BASE_DIR / "recetas")
+CARPETA_REPORTES = str(BASE_DIR / "reportes")
 
 # Crear carpetas si no existen
 for carpeta in [CARPETA_RECETAS, CARPETA_REPORTES]:
@@ -58,7 +66,9 @@ for carpeta in [CARPETA_RECETAS, CARPETA_REPORTES]:
 
 def conectar_bd():
     """Establece conexión con la base de datos Salud.db"""
-    return sqlite3.connect('BD/Salud.db')
+    conexion = sqlite3.connect((BASE_DIR / 'BD' / 'Salud.db').as_uri() + '?mode=rw', uri=True)
+    conexion.execute('PRAGMA foreign_keys = ON')
+    return conexion
 
 
 # -------------------- FUNCIONES DE CONSULTA --------------------
@@ -157,13 +167,111 @@ def obtener_paciente_por_dni(dni):
         return None
 
 
+def formatear_fecha(valor):
+    numeros = ''.join(c for c in valor if c in '0123456789')[:8]
+    return '-'.join(p for p in (numeros[:4], numeros[4:6], numeros[6:]) if p)
+
+
+def configurar_validacion(entry, campo, consulta=False):
+    """Restringe la escritura y el pegado, sin cambiar el diseño."""
+    reglas = {
+        'dni': lambda v: re.fullmatch(r'[0-9]{0,9}', v) is not None,
+        'cantidad': lambda v: re.fullmatch(r'[0-9]*', v) is not None,
+        'fecha_nac': lambda v: re.fullmatch(r'[0-9-]*', v) is not None and sum(c in '0123456789' for c in v) <= 8,
+    }
+    if campo in reglas:
+        entry.configure(validate='key', validatecommand=(entry.register(reglas[campo]), '%P'))
+    if campo == 'fecha_nac':
+        # StringVar detecta también pegar con el menú contextual.
+        variable = tk.StringVar(master=entry, value=entry.get())
+        entry.configure(textvariable=variable)
+        entry._fecha_var = variable
+        pendiente = [None]
+        def aplicar():
+            pendiente[0] = None
+            if not entry.winfo_exists():
+                return
+            texto = variable.get()
+            cursor = entry.index(tk.INSERT)
+            cantidad = sum(c in '0123456789' for c in texto[:cursor])
+            nuevo = formatear_fecha(texto)
+            if texto == nuevo:
+                return
+            entry.configure(validate='none')
+            variable.set(nuevo)
+            entry.configure(validate='key')
+            posicion = 0
+            while posicion < len(nuevo) and cantidad:
+                if nuevo[posicion] in '0123456789':
+                    cantidad -= 1
+                posicion += 1
+            entry.icursor(posicion)
+        def cambio(*args):
+            if pendiente[0] is None:
+                pendiente[0] = entry.after_idle(aplicar)
+        traza = variable.trace_add('write', cambio)
+        def borrar_separador(event):
+            pos = entry.index(tk.INSERT)
+            if not entry.selection_present() and pos > 1 and entry.get()[pos-1] == '-':
+                entry.delete(pos-2, pos)
+                return 'break'
+        entry.bind('<BackSpace>', borrar_separador, add='+')
+        def limpiar(event):
+            if pendiente[0] is not None:
+                entry.after_cancel(pendiente[0])
+            variable.trace_remove('write', traza)
+        # Guardar el identificador para liberar el callback al cerrar.
+        entry.bind('<Destroy>', limpiar, add='+')
+
+
+def validar_prescripcion(datos, cursor):
+    datos = dict(datos)
+    for campo, etiqueta in [('dosis', 'Dosis'), ('via_administracion', 'Vía de administración'), ('frecuencia', 'Frecuencia')]:
+        datos[campo] = str(datos.get(campo) or '').strip()
+        if not datos[campo]:
+            raise ValueError(f'{etiqueta} es obligatorio.')
+    cantidad = datos.get('cantidad')
+    if cantidad is None or cantidad == '':
+        datos['cantidad'] = None
+    elif not re.fullmatch(r'[0-9]+', str(cantidad)) or not 0 < int(cantidad) <= 9223372036854775807:
+        raise ValueError('La cantidad debe ser un número entero positivo.')
+    else:
+        datos['cantidad'] = int(cantidad)
+    fechas = {}
+    for campo, etiqueta in [('fecha_inicio', 'Fecha de inicio'), ('fecha_fin', 'Fecha de fin')]:
+        valor = str(datos.get(campo) or '').strip()
+        if not valor:
+            datos[campo] = None
+            continue
+        try:
+            if not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', valor):
+                raise ValueError()
+            fechas[campo] = date.fromisoformat(valor)
+        except ValueError:
+            raise ValueError(f'{etiqueta}: ingrese una fecha válida (AAAA-MM-DD).') from None
+        datos[campo] = valor
+    if len(fechas) == 2 and fechas['fecha_fin'] < fechas['fecha_inicio']:
+        raise ValueError('La fecha de fin no puede ser anterior a la de inicio.')
+    for campo, tabla, etiqueta in [('paciente_id','Pacientes','paciente'), ('profesional_id','Profesionales','profesional'), ('farmaco_id','Farmacos','fármaco'), ('snomed_id','SnomedCT','diagnóstico')]:
+        identificador = datos.get(campo)
+        if campo == 'snomed_id' and identificador in (None, ''):
+            datos[campo] = None
+            continue
+        if not cursor.execute(f'SELECT 1 FROM {tabla} WHERE id = ? AND activo = 1', (identificador,)).fetchone():
+            raise ValueError(f'Seleccione un {etiqueta} activo y existente.')
+    return datos
+
+
 # -------------------- CRUD DE PRESCRIPCIONES --------------------
 
 def registrar_prescripcion(datos):
     """Registra una nueva prescripción (CREATE)"""
+    conexion = None
     try:
         conexion = conectar_bd()
         cursor = conexion.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        datos = validar_prescripcion(datos, cursor)
         
         cursor.execute("""
             INSERT INTO Prescripciones 
@@ -212,9 +320,14 @@ def registrar_prescripcion(datos):
         
         return True, nuevo_id
         
+    except ValueError as e:
+        return False, str(e)
     except Exception as e:
         print(f"[ERROR] Error en registrar_prescripcion: {e}")
         return False, f"❌ Error al registrar prescripción: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
 
 
 def listar_prescripciones(activas=True):
@@ -597,6 +710,9 @@ def generar_reporte_html(prescripcion_id):
     estado = "ACTIVA" if prescripcion['activo'] == 1 else "ANULADA"
     color_estado = "#4CAF50" if prescripcion['activo'] == 1 else "#f44336"
     
+    prescripcion = {k: escape(v) if isinstance(v, str) else v for k, v in prescripcion.items()}
+    fecha_formateada = escape(fecha_formateada)
+
     # Diagnóstico HTML
     diagnostico_html = ""
     if prescripcion['diagnostico']:
@@ -940,13 +1056,14 @@ class AppPrescripciones:
                 bg='#f0f0f0').pack(side='left', padx=10)
         
         entry_dni = tk.Entry(frame, font=('Arial', 11), width=20)
+        configurar_validacion(entry_dni, 'dni')
         entry_dni.pack(side='left', padx=10)
         entry_dni.focus()
         
         def buscar():
             dni = entry_dni.get().strip()
-            if not dni:
-                messagebox.showerror("Error", "Ingrese un DNI.")
+            if not re.fullmatch(r'[0-9]{7,9}', dni):
+                messagebox.showerror("Error", "Ingrese un DNI de 7 a 9 dígitos.")
                 return
             
             paciente = obtener_paciente_por_dni(dni)
@@ -1048,7 +1165,7 @@ class AppPrescripciones:
         tk.Label(ventana, text="💊 NUEVA PRESCRIPCIÓN",
                 font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#003366').pack(pady=10)
         
-        tk.Label(ventana, text="Los campos con * son obligatorios",
+        tk.Label(ventana, text="Los campos con (*) son obligatorios",
                 font=('Arial', 9), bg='#f0f0f0', fg='#666666').pack(pady=2)
         
         # Obtener datos
@@ -1081,34 +1198,34 @@ class AppPrescripciones:
         # Paciente
         frame = tk.Frame(frame_campos, bg='#f0f0f0')
         frame.pack(fill='x', pady=4)
-        tk.Label(frame, text="Paciente *:", width=22, anchor='w',
+        tk.Label(frame, text="Paciente (*):", width=22, anchor='w',
                 bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
         valores_pacientes = [f"{p[0]} - {p[2]} {p[3]} (DNI: {p[1]})" for p in pacientes]
         combo_paciente = ttk.Combobox(frame, width=40, font=('Arial', 10), state='readonly')
         combo_paciente['values'] = valores_pacientes
-        combo_paciente.current(0)
+        combo_paciente.set('')
         combo_paciente.pack(side='right')
         
         # Profesional
         frame = tk.Frame(frame_campos, bg='#f0f0f0')
         frame.pack(fill='x', pady=4)
-        tk.Label(frame, text="Profesional *:", width=22, anchor='w',
+        tk.Label(frame, text="Profesional (*):", width=22, anchor='w',
                 bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
         valores_prof = [f"{p[0]} - {p[2]} {p[3]} ({p[4] or 'Sin especialidad'})" for p in profesionales]
         combo_prof = ttk.Combobox(frame, width=40, font=('Arial', 10), state='readonly')
         combo_prof['values'] = valores_prof
-        combo_prof.current(0)
+        combo_prof.set('')
         combo_prof.pack(side='right')
         
         # Fármaco
         frame = tk.Frame(frame_campos, bg='#f0f0f0')
         frame.pack(fill='x', pady=4)
-        tk.Label(frame, text="Fármaco *:", width=22, anchor='w',
+        tk.Label(frame, text="Fármaco (*):", width=22, anchor='w',
                 bg='#f0f0f0', font=('Arial', 10, 'bold')).pack(side='left')
         valores_farmacos = [f"{f[0]} - {f[1]} {f[2]} ({f[3] or 'N/A'})" for f in farmacos]
         combo_farmaco = ttk.Combobox(frame, width=40, font=('Arial', 10), state='readonly')
         combo_farmaco['values'] = valores_farmacos
-        combo_farmaco.current(0)
+        combo_farmaco.set('')
         combo_farmaco.pack(side='right')
         
         # Diagnóstico SNOMED
@@ -1119,7 +1236,7 @@ class AppPrescripciones:
         if snomed:
             valores_snomed = [f"{s[0]} - {s[1]} {s[2]} ({s[3]})" for s in snomed]
             combo_snomed = ttk.Combobox(frame, width=40, font=('Arial', 10), state='readonly')
-            combo_snomed['values'] = valores_snomed
+            combo_snomed['values'] = [''] + valores_snomed
             combo_snomed.current(0)
         else:
             combo_snomed = ttk.Combobox(frame, width=40, font=('Arial', 10), state='readonly')
@@ -1133,9 +1250,9 @@ class AppPrescripciones:
         frame_detalles.pack(fill='x', pady=5)
         
         campos_texto = [
-            ('Dosis *', 'dosis', 0, 0),
-            ('Vía Administración *', 'via', 0, 1),
-            ('Frecuencia *', 'frecuencia', 1, 0),
+            ('Dosis (*)', 'dosis', 0, 0),
+            ('Vía Administración (*)', 'via', 0, 1),
+            ('Frecuencia (*)', 'frecuencia', 1, 0),
             ('Duración (ej: 7 días)', 'duracion', 1, 1),
             ('Cantidad', 'cantidad', 2, 0),
             ('Fecha Inicio (YYYY-MM-DD)', 'fecha_inicio', 2, 1),
@@ -1149,6 +1266,10 @@ class AppPrescripciones:
             tk.Label(frame, text=label_text, width=22, anchor='w',
                     bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
             entry = tk.Entry(frame, width=20, font=('Arial', 10))
+            if key == 'cantidad':
+                configurar_validacion(entry, key)
+            elif key in ('fecha_inicio', 'fecha_fin'):
+                configurar_validacion(entry, 'fecha_nac')
             entry.pack(side='right')
             entries[key] = entry
         
@@ -1187,7 +1308,7 @@ class AppPrescripciones:
                 'via_administracion': entries['via'].get().strip(),
                 'frecuencia': entries['frecuencia'].get().strip(),
                 'duracion': entries['duracion'].get().strip(),
-                'cantidad': int(entries['cantidad'].get()) if entries['cantidad'].get().strip() else None,
+                'cantidad': entries['cantidad'].get().strip() or None,
                 'indicaciones': text_indicaciones.get('1.0', tk.END).strip(),
                 'fecha_inicio': entries['fecha_inicio'].get().strip() or None,
                 'fecha_fin': entries['fecha_fin'].get().strip() or None

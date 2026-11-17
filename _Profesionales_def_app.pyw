@@ -34,6 +34,8 @@ import sqlite3
 import tkinter as tk
 from tkinter import messagebox, ttk
 from pathlib import Path
+from datetime import date
+import re
 
 # ----------------------------------------------------------------
 # IMPORTAR FUNCIONES DE AUDITORÍA
@@ -52,8 +54,10 @@ from Auditoria_utiles import (
 
 def conectar_bd():
     """Establece conexión con la base de datos Salud.db"""
-    ruta_bd = Path(__file__).resolve().parent / 'DB' / 'Salud.db'
-    return sqlite3.connect(ruta_bd)
+    ruta_bd = Path(__file__).resolve().parent / 'BD' / 'Salud.db'
+    conexion = sqlite3.connect(ruta_bd.as_uri() + '?mode=rw', uri=True)
+    conexion.execute('PRAGMA foreign_keys = ON')
+    return conexion
 
 
 # -------------------- FUNCIONES DE TABLAS MAESTRAS --------------------
@@ -77,14 +81,130 @@ def obtener_especialidades_selector():
         return []
 
 
+def solo_digitos(valor, maximo=8):
+    return re.fullmatch(r'[0-9]*', valor) is not None and len(valor) <= maximo
+
+
+def solo_letras(valor):
+    return all(c.isalpha() or c in " -'’" for c in valor)
+
+
+def caracteres_telefono(valor):
+    return re.fullmatch(r'[0-9+() -]*', valor) is not None
+
+
+def formatear_fecha(valor):
+    numeros = ''.join(c for c in valor if c in '0123456789')[:8]
+    return '-'.join(p for p in (numeros[:4], numeros[4:6], numeros[6:]) if p)
+
+
+def error_campo(campo, valor):
+    valor = valor.strip()
+    if campo == 'dni' and not re.fullmatch(r'[0-9]{7,8}', valor):
+        return 'El DNI debe tener 7 u 8 dígitos.'
+    if campo in ('nombre', 'apellido') and (not solo_letras(valor) or not any(c.isalpha() for c in valor)):
+        return f'Ingrese un {campo} válido, sin números.'
+    if campo == 'fecha_nac':
+        try:
+            if not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', valor):
+                raise ValueError()
+            nacimiento = date.fromisoformat(valor)
+        except ValueError:
+            return 'Ingrese una fecha válida (AAAA-MM-DD).'
+        if nacimiento > date.today():
+            return 'La fecha de nacimiento no puede ser futura.'
+    if campo == 'sexo' and valor.upper() not in ('M', 'F'):
+        return 'El sexo debe ser M o F.'
+    if campo == 'telefono' and valor and (not caracteres_telefono(valor) or not 6 <= sum(c in '0123456789' for c in valor) <= 15):
+        return 'Ingrese un teléfono con 6 a 15 dígitos.'
+    if campo == 'email' and valor and not re.fullmatch(r'[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+', valor):
+        return 'Ingrese un correo electrónico válido.'
+    return ''
+
+
+def configurar_validacion(entry, campo, consulta=False):
+    """Restringe la escritura y el pegado, sin cambiar el diseño."""
+    reglas = {
+        'dni': lambda v: solo_digitos(v, 9 if consulta else 8),
+        'nombre': solo_letras, 'apellido': solo_letras,
+        'telefono': caracteres_telefono,
+        'sexo': lambda v: v.upper() in ('', 'M', 'F'),
+        'fecha_nac': lambda v: re.fullmatch(r'[0-9-]*', v) is not None and sum(c in '0123456789' for c in v) <= 8,
+    }
+    if campo in reglas:
+        entry.configure(validate='key', validatecommand=(entry.register(reglas[campo]), '%P'))
+    if campo == 'fecha_nac':
+        # StringVar detecta también pegar con el menú contextual.
+        variable = tk.StringVar(master=entry, value=entry.get())
+        entry.configure(textvariable=variable)
+        entry._fecha_var = variable
+        pendiente = [None]
+        def aplicar():
+            pendiente[0] = None
+            if not entry.winfo_exists():
+                return
+            texto = variable.get()
+            cursor = entry.index(tk.INSERT)
+            cantidad = sum(c in '0123456789' for c in texto[:cursor])
+            nuevo = formatear_fecha(texto)
+            if texto == nuevo:
+                return
+            entry.configure(validate='none')
+            variable.set(nuevo)
+            entry.configure(validate='key')
+            posicion = 0
+            while posicion < len(nuevo) and cantidad:
+                if nuevo[posicion] in '0123456789':
+                    cantidad -= 1
+                posicion += 1
+            entry.icursor(posicion)
+        def cambio(*args):
+            if pendiente[0] is None:
+                pendiente[0] = entry.after_idle(aplicar)
+        traza = variable.trace_add('write', cambio)
+        def borrar_separador(event):
+            pos = entry.index(tk.INSERT)
+            if not entry.selection_present() and pos > 1 and entry.get()[pos-1] == '-':
+                entry.delete(pos-2, pos)
+                return 'break'
+        entry.bind('<BackSpace>', borrar_separador, add='+')
+        def limpiar(event):
+            if pendiente[0] is not None:
+                entry.after_cancel(pendiente[0])
+            variable.trace_remove('write', traza)
+        # Guardar el identificador para liberar el callback al cerrar.
+        entry.bind('<Destroy>', limpiar, add='+')
+
+
+def validar_datos_profesional(datos, alta=False):
+    campos = ('dni', 'nombre', 'apellido', 'fecha_nac', 'sexo', 'telefono', 'email') if alta else ('telefono', 'email')
+    for campo in campos:
+        error = error_campo(campo, str(datos.get(campo) or ''))
+        if error:
+            return error
+    if alta and not re.fullmatch(r'[A-Za-z0-9 -]*[0-9][A-Za-z0-9 -]*', str(datos.get('matricula') or '').strip()):
+        return 'Ingrese una matrícula válida, con al menos un número.'
+    return ''
+
+
 # -------------------- CRUD DE PROFESIONALES --------------------
 
 def registrar_profesional(datos):
-    """HU-04: Registrar nuevo profesional (CREATE)"""
+    """HU-05: Registrar nuevo profesional (CREATE)"""
+    datos = {**datos, "matricula": " ".join(str(datos.get("matricula") or "").upper().split())}
+    error = validar_datos_profesional(datos, alta=True)
+    if error:
+        return False, error
     try:
         conexion = conectar_bd()
         cursor = conexion.cursor()
+        if not cursor.execute("SELECT 1 FROM Especialidades WHERE id = ? AND activo = 1", (datos.get('especialidad_id'),)).fetchone():
+            conexion.close()
+            return False, "Seleccione una especialidad activa."
         
+        if any(" ".join(str(m[0]).upper().split()) == datos['matricula'] for m in cursor.execute("SELECT matricula FROM Profesionales")):
+            conexion.close()
+            return False, "Matrícula duplicada."
         cursor.execute("""
             INSERT INTO Profesionales 
             (dni, nombre, apellido, fecha_nacimiento, sexo, 
@@ -238,9 +358,15 @@ def listar_profesionales(activos=True):
 
 def modificar_profesional(profesional_id, datos):
     """Modifica datos de un profesional (UPDATE)"""
+    error = validar_datos_profesional(datos)
+    if error:
+        return False, error
     try:
         conexion = conectar_bd()
         cursor = conexion.cursor()
+        if not cursor.execute("SELECT 1 FROM Especialidades WHERE id = ? AND activo = 1", (datos.get('especialidad_id'),)).fetchone():
+            conexion.close()
+            return False, "Seleccione una especialidad activa."
         
         # Obtener datos anteriores para auditoría
         cursor.execute("""
@@ -737,7 +863,7 @@ class AppProfesionales:
         
         tk.Label(
             ventana,
-            text="Los campos con * son obligatorios",
+            text="Los campos con (*) son obligatorios",
             font=('Arial', 9),
             bg='#f0f0f0',
             fg='#666666'
@@ -758,7 +884,7 @@ class AppProfesionales:
             ('DNI *', 'dni', True),
             ('Nombre *', 'nombre', True),
             ('Apellido *', 'apellido', True),
-            ('Fecha Nac. (YYYY-MM-DD) *', 'fecha_nac', True),
+            ('Fecha (AAAA-MM-DD) *', 'fecha_nac', True),
             ('Sexo (M/F) *', 'sexo', True),
             ('Matrícula *', 'matricula', True),
             ('Especialidad *', 'especialidad', True),
@@ -771,7 +897,7 @@ class AppProfesionales:
             frame = tk.Frame(frame_campos, bg='#f0f0f0')
             frame.pack(fill='x', pady=3)
             
-            texto = label_text + ' *' if obligatorio else label_text
+            texto = label_text.removesuffix(' *') + ' (*)' if obligatorio else label_text
             tk.Label(
                 frame,
                 text=texto,
@@ -784,12 +910,13 @@ class AppProfesionales:
             if key == 'especialidad':
                 combo = ttk.Combobox(frame, width=28, font=('Arial', 10), state='readonly')
                 combo['values'] = [f"{esp[1]} - {esp[2]}" for esp in especialidades]
-                if combo['values']:
-                    combo.current(0)
                 combo.pack(side='right')
                 self.entries[key] = combo
             else:
                 entry = tk.Entry(frame, width=28, font=('Arial', 10))
+                configurar_validacion(entry, key)
+                if key == 'matricula':
+                    entry.configure(validate='key', validatecommand=(entry.register(lambda v: re.fullmatch(r'[A-Za-z0-9 -]*', v) is not None), '%P'))
                 entry.pack(side='right')
                 self.entries[key] = entry
         
@@ -865,6 +992,7 @@ class AppProfesionales:
         tk.Label(frame_busqueda, text="DNI:", font=('Arial', 12, 'bold'), bg='#f0f0f0').pack(side='left', padx=10)
         
         entry_dni = tk.Entry(frame_busqueda, font=('Arial', 12), width=20)
+        configurar_validacion(entry_dni, 'dni', consulta=True)
         entry_dni.pack(side='left', padx=10)
         entry_dni.focus()
         
@@ -877,8 +1005,8 @@ class AppProfesionales:
         
         def buscar():
             dni = entry_dni.get().strip()
-            if not dni:
-                messagebox.showerror("Error", "Ingrese un DNI.")
+            if not re.fullmatch(r'[0-9]{7,9}', dni):
+                messagebox.showerror("Error", "Ingrese un DNI de 7 a 9 dígitos.")
                 return
             
             r = buscar_profesional(dni)
@@ -925,6 +1053,7 @@ class AppProfesionales:
         
         tk.Label(frame_buscar, text="DNI:", font=('Arial', 11), bg='#f0f0f0').pack(side='left', padx=10)
         entry_dni = tk.Entry(frame_buscar, font=('Arial', 11), width=20)
+        configurar_validacion(entry_dni, 'dni', consulta=True)
         entry_dni.pack(side='left', padx=10)
         entry_dni.focus()
         
@@ -940,7 +1069,7 @@ class AppProfesionales:
         campos_mod = [
             ('Teléfono', 'telefono'),
             ('Email', 'email'),
-            ('Especialidad *', 'especialidad')
+            ('Especialidad (*)', 'especialidad')
         ]
         
         entries_mod = {}
@@ -956,27 +1085,32 @@ class AppProfesionales:
             if key == 'especialidad':
                 combo = ttk.Combobox(frame, width=28, font=('Arial', 10), state='readonly')
                 combo['values'] = [f"{esp[1]} - {esp[2]}" for esp in especialidades]
-                if combo['values']:
-                    combo.current(0)
                 combo.pack(side='right')
                 entries_mod[key] = combo
             else:
                 entry = tk.Entry(frame, width=28, font=('Arial', 10))
+                configurar_validacion(entry, key)
                 entry.pack(side='right')
                 entries_mod[key] = entry
         
         profesional_id_actual = None
+        dni_seleccionado = None
         
         def buscar_mod():
-            nonlocal profesional_id_actual
+            nonlocal profesional_id_actual, dni_seleccionado
+            profesional_id_actual = None
+            dni_seleccionado = None
+            frame_entries.pack_forget()
+            label_nombre.config(text="Ingrese un DNI y presione Buscar")
             dni = entry_dni.get().strip()
-            if not dni:
-                messagebox.showerror("Error", "Ingrese un DNI.")
+            if not re.fullmatch(r'[0-9]{7,9}', dni):
+                messagebox.showerror("Error", "Ingrese un DNI de 7 a 9 dígitos.")
                 return
             
             r = buscar_profesional(dni)
             if r:
                 profesional_id_actual = r['id']
+                dni_seleccionado = dni
                 label_nombre.config(
                     text=f"{r['nombre']} {r['apellido']} (ID: {r['id']}) - {'Activo' if r['activo']==1 else 'INACTIVO'}",
                     fg='#003366'
@@ -987,6 +1121,7 @@ class AppProfesionales:
                 entries_mod['email'].insert(0, r['email'])
                 
                 # Seleccionar especialidad
+                entries_mod['especialidad'].set('')
                 for i, esp in enumerate(especialidades):
                     if esp[0] == r['especialidad_id']:
                         entries_mod['especialidad'].current(i)
@@ -1004,7 +1139,7 @@ class AppProfesionales:
         
         def guardar_mod():
             nonlocal profesional_id_actual
-            if not profesional_id_actual:
+            if not profesional_id_actual or entry_dni.get().strip() != dni_seleccionado:
                 messagebox.showerror("Error", "Primero busque un profesional.")
                 return
             
@@ -1076,13 +1211,14 @@ class AppProfesionales:
         tk.Label(frame, text="DNI del profesional:", font=('Arial', 11), bg='#f0f0f0').pack(side='left', padx=10)
         
         entry_dni = tk.Entry(frame, font=('Arial', 11), width=20)
+        configurar_validacion(entry_dni, 'dni', consulta=True)
         entry_dni.pack(side='left', padx=10)
         entry_dni.focus()
         
         def confirmar():
             dni = entry_dni.get().strip()
-            if not dni:
-                messagebox.showerror("Error", "Ingrese un DNI.")
+            if not re.fullmatch(r'[0-9]{7,9}', dni):
+                messagebox.showerror("Error", "Ingrese un DNI de 7 a 9 dígitos.")
                 return
             
             p = buscar_profesional(dni)

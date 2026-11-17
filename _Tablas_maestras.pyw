@@ -19,17 +19,16 @@
 # ================================================================
 
 import sqlite3
+import re
+from contextlib import closing
+import Auditoria_utiles as auditoria
 import tkinter as tk
 from tkinter import messagebox, ttk
 from pathlib import Path
-from ui_helpers import BotonRedondeado, EntradaCuadrada
 
-tk.Button = BotonRedondeado
-tk.Entry = EntradaCuadrada
-
-COLOR_FONDO = '#F4F7FB'
-COLOR_TEXTO = '#183B56'
-COLOR_SECUNDARIO = '#5C7184'
+COLOR_FONDO = '#f0f0f0'
+COLOR_TEXTO = '#003366'
+COLOR_SECUNDARIO = '#666666'
 
 # ----------------------------------------------------------------
 # IMPORTAR FUNCIONES DE AUDITORÍA
@@ -47,9 +46,61 @@ from Auditoria_utiles import (
 
 def conectar_bd():
     """Establece conexión con la base de datos Salud.db"""
-    ruta_bd = Path(__file__).resolve().parent / 'DB' / 'Salud.db'
-    return sqlite3.connect(ruta_bd)
+    ruta_bd = Path(__file__).resolve().parent / 'BD' / 'Salud.db'
+    return sqlite3.connect(ruta_bd.as_uri() + '?mode=rw', uri=True)
 
+
+auditoria.RUTA_BD = str(Path(__file__).resolve().parent / 'BD' / 'Salud.db')
+auditoria.RUTA_SESION = str(Path(__file__).resolve().parent / '.sesion')
+
+
+def codigo_permitido(valor, tabla):
+    patron = r'[0-9]*' if tabla == 'SnomedCT' else r'[A-Za-z0-9._/-]*'
+    return re.fullmatch(patron, valor) is not None
+
+
+def telefono_permitido(valor):
+    return re.fullmatch(r'[0-9+() -]*', valor) is not None
+
+
+def validar_maestro(datos, tabla):
+    campos = {
+        'Especialidades': ('codigo', 'nombre', 'descripcion'),
+        'SnomedCT': ('codigo', 'termino', 'descripcion', 'categoria'),
+        'Farmacos': ('codigo', 'nombre', 'principio_activo', 'presentacion', 'concentracion', 'via_administracion'),
+        'ObrasSociales': ('codigo', 'nombre', 'telefono', 'email')
+    }[tabla]
+    datos = {c: str(datos.get(c) if datos.get(c) is not None else '').strip() for c in campos}
+    requeridos = ('codigo', 'termino', 'categoria') if tabla == 'SnomedCT' else ('codigo', 'nombre')
+    for campo in requeridos:
+        if not datos[campo]:
+            raise ValueError(f'El campo {campo} es obligatorio.')
+    if not codigo_permitido(datos['codigo'], tabla):
+        raise ValueError('Código inválido: revise los caracteres permitidos.')
+    if tabla == 'ObrasSociales':
+        if not telefono_permitido(datos['telefono']):
+            raise ValueError('Teléfono inválido.')
+        if datos['email'] and not re.fullmatch(r'[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+', datos['email']):
+            raise ValueError('Correo electrónico inválido.')
+    return datos
+
+
+def comprobar_codigo(cursor, tabla, codigo, registro_id=None):
+    # El nombre de tabla proviene exclusivamente de constantes del módulo.
+    cursor.execute(f'SELECT id FROM {tabla} WHERE UPPER(TRIM(codigo)) = UPPER(?) AND (? IS NULL OR id != ?)',
+                   (codigo, registro_id, registro_id))
+    if cursor.fetchone():
+        raise ValueError('Código duplicado. Ya existe un registro con ese código.')
+
+
+def restringir_entrada(entrada, ventana, campo, tabla):
+    if campo == 'codigo':
+        funcion = lambda valor: codigo_permitido(valor, tabla)
+    elif campo == 'telefono':
+        funcion = telefono_permitido
+    else:
+        return
+    entrada.configure(validate='key', validatecommand=(ventana.register(funcion), '%P'))
 
 # -------------------- FUNCIONES GENÉRICAS --------------------
 
@@ -164,9 +215,13 @@ def listar_especialidades(activos=True):
 
 def registrar_especialidad(datos):
     """Registra una nueva especialidad"""
+    conexion = None
     try:
+        datos = validar_maestro(datos, 'Especialidades')
         conexion = conectar_bd()
         cursor = conexion.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        comprobar_codigo(cursor, 'Especialidades', datos['codigo'])
         cursor.execute("""
             INSERT INTO Especialidades (codigo, nombre, descripcion, activo)
             VALUES (?, ?, ?, ?)
@@ -186,19 +241,30 @@ def registrar_especialidad(datos):
         return True, nuevo_id
     except sqlite3.IntegrityError:
         return False, "❌ Código duplicado. Ya existe una especialidad con ese código."
+    except ValueError as e:
+        return False, str(e)
     except Exception as e:
         return False, f"❌ Error: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
 
 
 def modificar_especialidad(especialidad_id, datos):
     """Modifica una especialidad"""
+    conexion = None
     try:
+        datos = validar_maestro(datos, 'Especialidades')
         conexion = conectar_bd()
         cursor = conexion.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        comprobar_codigo(cursor, 'Especialidades', datos['codigo'], especialidad_id)
         
         # Obtener datos anteriores para auditoría
         cursor.execute("SELECT codigo, nombre, descripcion FROM Especialidades WHERE id = ?", (especialidad_id,))
         anterior = cursor.fetchone()
+        if anterior is None:
+            return False, "No se encontró el registro."
         
         cursor.execute("""
             UPDATE Especialidades 
@@ -220,12 +286,18 @@ def modificar_especialidad(especialidad_id, datos):
         return True, "✅ Especialidad modificada correctamente."
     except sqlite3.IntegrityError:
         return False, "❌ Código duplicado."
+    except ValueError as e:
+        return False, str(e)
     except Exception as e:
         return False, f"❌ Error: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
 
 
 def eliminar_especialidad(especialidad_id):
     """Elimina lógicamente una especialidad (activo = 0)"""
+    conexion = None
     try:
         conexion = conectar_bd()
         cursor = conexion.cursor()
@@ -234,7 +306,9 @@ def eliminar_especialidad(especialidad_id):
         cursor.execute("SELECT codigo, nombre FROM Especialidades WHERE id = ?", (especialidad_id,))
         datos = cursor.fetchone()
         
-        cursor.execute("UPDATE Especialidades SET activo = 0 WHERE id = ?", (especialidad_id,))
+        cursor.execute("UPDATE Especialidades SET activo = 0 WHERE id = ? AND activo = 1", (especialidad_id,))
+        if cursor.rowcount == 0:
+            return False, "No se encontró un registro activo."
         conexion.commit()
         conexion.close()
         
@@ -247,8 +321,13 @@ def eliminar_especialidad(especialidad_id):
         )
         
         return True, "✅ Especialidad desactivada correctamente."
+    except ValueError as e:
+        return False, str(e)
     except Exception as e:
         return False, f"❌ Error: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
 
 
 def obtener_especialidades_selector():
@@ -294,9 +373,13 @@ def listar_snomed(categoria=None):
 
 def registrar_snomed(datos):
     """Registra un término SNOMED CT"""
+    conexion = None
     try:
+        datos = validar_maestro(datos, 'SnomedCT')
         conexion = conectar_bd()
         cursor = conexion.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        comprobar_codigo(cursor, 'SnomedCT', datos['codigo'])
         cursor.execute("""
             INSERT INTO SnomedCT (codigo, termino, descripcion, categoria, activo)
             VALUES (?, ?, ?, ?, ?)
@@ -317,19 +400,30 @@ def registrar_snomed(datos):
         return True, nuevo_id
     except sqlite3.IntegrityError:
         return False, "❌ Código duplicado."
+    except ValueError as e:
+        return False, str(e)
     except Exception as e:
         return False, f"❌ Error: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
 
 
 def modificar_snomed(snomed_id, datos):
     """Modifica un término SNOMED CT"""
+    conexion = None
     try:
+        datos = validar_maestro(datos, 'SnomedCT')
         conexion = conectar_bd()
         cursor = conexion.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        comprobar_codigo(cursor, 'SnomedCT', datos['codigo'], snomed_id)
         
         # Obtener datos anteriores
         cursor.execute("SELECT codigo, termino, descripcion, categoria FROM SnomedCT WHERE id = ?", (snomed_id,))
         anterior = cursor.fetchone()
+        if anterior is None:
+            return False, "No se encontró el registro."
         
         cursor.execute("""
             UPDATE SnomedCT 
@@ -355,12 +449,18 @@ def modificar_snomed(snomed_id, datos):
         return True, "✅ Término SNOMED modificado correctamente."
     except sqlite3.IntegrityError:
         return False, "❌ Código duplicado."
+    except ValueError as e:
+        return False, str(e)
     except Exception as e:
         return False, f"❌ Error: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
 
 
 def eliminar_snomed(snomed_id):
     """Elimina lógicamente un término SNOMED (activo = 0)"""
+    conexion = None
     try:
         conexion = conectar_bd()
         cursor = conexion.cursor()
@@ -368,7 +468,9 @@ def eliminar_snomed(snomed_id):
         cursor.execute("SELECT codigo, termino FROM SnomedCT WHERE id = ?", (snomed_id,))
         datos = cursor.fetchone()
         
-        cursor.execute("UPDATE SnomedCT SET activo = 0 WHERE id = ?", (snomed_id,))
+        cursor.execute("UPDATE SnomedCT SET activo = 0 WHERE id = ? AND activo = 1", (snomed_id,))
+        if cursor.rowcount == 0:
+            return False, "No se encontró un registro activo."
         conexion.commit()
         conexion.close()
         
@@ -381,8 +483,13 @@ def eliminar_snomed(snomed_id):
         )
         
         return True, "✅ Término SNOMED desactivado correctamente."
+    except ValueError as e:
+        return False, str(e)
     except Exception as e:
         return False, f"❌ Error: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
 
 
 def buscar_snomed_por_termino(termino):
@@ -427,9 +534,13 @@ def listar_farmacos():
 
 def registrar_farmaco(datos):
     """Registra un nuevo fármaco"""
+    conexion = None
     try:
+        datos = validar_maestro(datos, 'Farmacos')
         conexion = conectar_bd()
         cursor = conexion.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        comprobar_codigo(cursor, 'Farmacos', datos['codigo'])
         cursor.execute("""
             INSERT INTO Farmacos 
             (codigo, nombre, principio_activo, presentacion, concentracion, via_administracion, activo)
@@ -453,21 +564,32 @@ def registrar_farmaco(datos):
         return True, nuevo_id
     except sqlite3.IntegrityError:
         return False, "❌ Código duplicado."
+    except ValueError as e:
+        return False, str(e)
     except Exception as e:
         return False, f"❌ Error: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
 
 
 def modificar_farmaco(farmaco_id, datos):
     """Modifica un fármaco"""
+    conexion = None
     try:
+        datos = validar_maestro(datos, 'Farmacos')
         conexion = conectar_bd()
         cursor = conexion.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        comprobar_codigo(cursor, 'Farmacos', datos['codigo'], farmaco_id)
         
         cursor.execute("""
             SELECT codigo, nombre, principio_activo, presentacion, concentracion, via_administracion 
             FROM Farmacos WHERE id = ?
         """, (farmaco_id,))
         anterior = cursor.fetchone()
+        if anterior is None:
+            return False, "No se encontró el registro."
         
         cursor.execute("""
             UPDATE Farmacos 
@@ -496,12 +618,18 @@ def modificar_farmaco(farmaco_id, datos):
         return True, "✅ Fármaco modificado correctamente."
     except sqlite3.IntegrityError:
         return False, "❌ Código duplicado."
+    except ValueError as e:
+        return False, str(e)
     except Exception as e:
         return False, f"❌ Error: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
 
 
 def eliminar_farmaco(farmaco_id):
     """Elimina lógicamente un fármaco (activo = 0)"""
+    conexion = None
     try:
         conexion = conectar_bd()
         cursor = conexion.cursor()
@@ -509,7 +637,9 @@ def eliminar_farmaco(farmaco_id):
         cursor.execute("SELECT codigo, nombre FROM Farmacos WHERE id = ?", (farmaco_id,))
         datos = cursor.fetchone()
         
-        cursor.execute("UPDATE Farmacos SET activo = 0 WHERE id = ?", (farmaco_id,))
+        cursor.execute("UPDATE Farmacos SET activo = 0 WHERE id = ? AND activo = 1", (farmaco_id,))
+        if cursor.rowcount == 0:
+            return False, "No se encontró un registro activo."
         conexion.commit()
         conexion.close()
         
@@ -522,13 +652,76 @@ def eliminar_farmaco(farmaco_id):
         )
         
         return True, "✅ Fármaco desactivado correctamente."
+    except ValueError as e:
+        return False, str(e)
     except Exception as e:
         return False, f"❌ Error: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
 
 
 # ================================================================
 # CAPA DE PRESENTACIÓN - APPLET GENERAL PARA TABLAS MAESTRAS
 # ================================================================
+
+def listar_obras_sociales():
+    with closing(conectar_bd()) as con:
+        return con.execute('SELECT id, codigo, nombre, telefono, email, activo FROM ObrasSociales ORDER BY nombre').fetchall()
+
+
+def guardar_obra_social(datos, obra_id=None):
+    try:
+        datos = validar_maestro(datos, 'ObrasSociales')
+        with closing(conectar_bd()) as con, con:
+            cur = con.cursor()
+            cur.execute('BEGIN IMMEDIATE')
+            comprobar_codigo(cur, 'ObrasSociales', datos['codigo'], obra_id)
+            campos = ('codigo', 'nombre', 'telefono', 'email')
+            valores = tuple(datos[c] for c in campos)
+            if obra_id is None:
+                cur.execute('INSERT INTO ObrasSociales (codigo,nombre,telefono,email) VALUES (?,?,?,?)', valores)
+                nuevo_id = cur.lastrowid
+            else:
+                anterior = cur.execute('SELECT codigo,nombre,telefono,email FROM ObrasSociales WHERE id=?', (obra_id,)).fetchone()
+                if anterior is None:
+                    return False, 'No se encontró la obra social.'
+                cur.execute('UPDATE ObrasSociales SET codigo=?,nombre=?,telefono=?,email=? WHERE id=?', valores + (obra_id,))
+        if obra_id is None:
+            auditar_alta(tabla='ObrasSociales', registro_id=nuevo_id, descripcion='Obra social creada', datos=datos)
+        else:
+            auditar_modificacion(tabla='ObrasSociales', registro_id=obra_id, descripcion='Obra social modificada', datos_ant=dict(zip(campos, anterior)), datos_nuevos=datos)
+        return True, 'Obra social guardada correctamente.'
+    except ValueError as e:
+        return False, str(e)
+    except sqlite3.IntegrityError:
+        return False, 'Código o nombre duplicado.'
+    except Exception as e:
+        return False, str(e)
+
+
+def registrar_obra_social(datos):
+    return guardar_obra_social(datos)
+
+
+def modificar_obra_social(obra_id, datos):
+    return guardar_obra_social(datos, obra_id)
+
+
+def desactivar_obra_social(obra_id):
+    try:
+        with closing(conectar_bd()) as con, con:
+            cur = con.cursor()
+            cur.execute('BEGIN IMMEDIATE')
+            anterior = cur.execute('SELECT codigo,nombre FROM ObrasSociales WHERE id=? AND activo=1', (obra_id,)).fetchone()
+            if anterior is None:
+                return False, 'No se encontró una obra social activa.'
+            cur.execute('UPDATE ObrasSociales SET activo=0 WHERE id=? AND activo=1', (obra_id,))
+        auditar_baja(tabla='ObrasSociales', registro_id=obra_id, descripcion='Obra social desactivada', datos=dict(zip(('codigo','nombre'), anterior)))
+        return True, 'Obra social desactivada.'
+    except Exception as e:
+        return False, str(e)
+
 
 class AppTablasMaestras:
     """Aplicación principal para gestionar tablas maestras"""
@@ -558,7 +751,7 @@ class AppTablasMaestras:
         titulo = tk.Label(
             self.frame_principal,
             text="📚 TABLAS MAESTRAS",
-            font=('Segoe UI', 18, 'bold'),
+            font=('Arial', 18, 'bold'),
             bg=COLOR_FONDO,
             fg=COLOR_TEXTO
         )
@@ -567,25 +760,24 @@ class AppTablasMaestras:
         subtitulo = tk.Label(
             self.frame_principal,
             text="Gestión de Especialidades, SNOMED CT, Fármacos y Obras Sociales",
-            font=('Segoe UI', 11),
+            font=('Arial', 11),
             bg=COLOR_FONDO,
             fg=COLOR_SECUNDARIO
         )
         subtitulo.pack(pady=5)
         
-        tk.Frame(self.frame_principal, height=1, bg='#D8E2EA').pack(fill='x', pady=10)
+        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
         
         # ---------- BOTONES DE SELECCIÓN DE TABLA ----------
         frame_tablas = tk.Frame(self.frame_principal, bg=COLOR_FONDO)
         frame_tablas.pack(pady=10)
         
         estilo_boton = {
-            'font': ('Segoe UI', 11, 'bold'),
-            'padx': 20,
+            'font': ('Arial', 10, 'bold'),
+            'padx': 15,
             'pady': 8,
-            'relief': 'flat',
-            'bd': 0,
-            'cursor': 'hand2'
+            'relief': 'raised',
+            'bd': 2
         }
         
         self.btn_especialidades = tk.Button(
@@ -628,7 +820,7 @@ class AppTablasMaestras:
         )
         self.btn_obras_sociales.pack(side='left', padx=5)
         
-        tk.Frame(self.frame_principal, height=1, bg='#D8E2EA').pack(fill='x', pady=10)
+        tk.Frame(self.frame_principal, height=2, bg='#cccccc').pack(fill='x', pady=10)
         
         # ---------- ÁREA DE CONTENIDO ----------
         self.frame_contenido = tk.Frame(self.frame_principal, bg=COLOR_FONDO)
@@ -638,7 +830,7 @@ class AppTablasMaestras:
         self.label_mensaje = tk.Label(
             self.frame_contenido,
             text="Seleccione una tabla para comenzar la gestión",
-            font=('Segoe UI', 14),
+            font=('Arial', 14),
             bg=COLOR_FONDO,
             fg=COLOR_SECUNDARIO
         )
@@ -667,7 +859,7 @@ class AppTablasMaestras:
         """Muestra el CRUD de obras sociales."""
         self.limpiar_contenido()
         tk.Label(self.frame_contenido, text='🏢 GESTIÓN DE OBRAS SOCIALES',
-                 font=('Segoe UI', 16, 'bold'), bg=COLOR_FONDO, fg='#7B1FA2').pack(pady=5)
+                 font=('Arial', 16, 'bold'), bg=COLOR_FONDO, fg='#7B1FA2').pack(pady=5)
 
         frame_acciones = tk.Frame(self.frame_contenido, bg=COLOR_FONDO)
         frame_acciones.pack(pady=5)
@@ -679,7 +871,7 @@ class AppTablasMaestras:
         frame_tabla = tk.Frame(self.frame_contenido, bg=COLOR_FONDO)
         frame_tabla.pack(fill='both', expand=True, pady=10)
         tree = ttk.Treeview(frame_tabla, columns=('ID', 'Código', 'Nombre', 'Teléfono', 'Email', 'Estado'),
-                            show='headings', style='Masters.Treeview')
+                            show='headings')
         for columna, ancho in (('ID', 50), ('Código', 100), ('Nombre', 220),
                                ('Teléfono', 140), ('Email', 220), ('Estado', 100)):
             tree.heading(columna, text=columna)
@@ -738,17 +930,18 @@ class AppTablasMaestras:
         ventana.grab_set()
 
         tk.Label(ventana, text=('✏️ EDITAR OBRA SOCIAL' if editar else '➕ AGREGAR OBRA SOCIAL'),
-                 font=('Segoe UI', 16, 'bold'), bg=COLOR_FONDO, fg='#7B1FA2').pack(pady=(10, 5))
-        campos = [('Código *', 'codigo'), ('Nombre *', 'nombre'), ('Teléfono', 'telefono'), ('Email', 'email')]
+                 font=('Arial', 16, 'bold'), bg=COLOR_FONDO, fg='#7B1FA2').pack(pady=(10, 5))
+        campos = [('Código (*)', 'codigo'), ('Nombre (*)', 'nombre'), ('Teléfono', 'telefono'), ('Email', 'email')]
         frame = tk.Frame(ventana, bg=COLOR_FONDO)
         frame.pack(padx=35, pady=8, fill='x')
         entradas = {}
         for indice, (etiqueta, clave) in enumerate(campos):
             tk.Label(frame, text=etiqueta, width=16, anchor='w', bg=COLOR_FONDO,
-                     fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).grid(row=indice, column=0, pady=5, sticky='w')
-            entrada = tk.Entry(frame, width=32, font=('Segoe UI', 10))
+                     fg=COLOR_TEXTO, font=('Arial', 10, 'bold')).grid(row=indice, column=0, pady=5, sticky='w')
+            entrada = tk.Entry(frame, width=32, font=('Arial', 10))
             if editar:
                 entrada.insert(0, valores[{'codigo': 1, 'nombre': 2, 'telefono': 3, 'email': 4}[clave]] or '')
+            restringir_entrada(entrada, ventana, clave, 'ObrasSociales')
             entrada.grid(row=indice, column=1, pady=5, sticky='ew')
             entradas[clave] = entrada
         frame.columnconfigure(1, weight=1)
@@ -822,7 +1015,6 @@ class AppTablasMaestras:
             show='headings',
             height=15
         )
-        tree.configure(style='Masters.Treeview')
         tree.tag_configure('par', background='#F2F7FA')
         tree.tag_configure('impar', background='#FFFFFF')
         tree.heading('ID', text='ID')
@@ -863,7 +1055,7 @@ class AppTablasMaestras:
         tk.Label(
             ventana,
             text="➕ AGREGAR ESPECIALIDAD",
-            font=('Segoe UI', 16, 'bold'),
+            font=('Arial', 16, 'bold'),
             bg=COLOR_FONDO,
             fg='#4CAF50'
         ).pack(pady=10)
@@ -872,8 +1064,8 @@ class AppTablasMaestras:
         frame.pack(padx=30, pady=10)
         
         campos = [
-            ('Código *', 'codigo'),
-            ('Nombre *', 'nombre'),
+            ('Código (*)', 'codigo'),
+            ('Nombre (*)', 'nombre'),
             ('Descripción', 'descripcion')
         ]
         
@@ -881,8 +1073,9 @@ class AppTablasMaestras:
         for label_text, key in campos:
             f = tk.Frame(frame, bg=COLOR_FONDO)
             f.pack(fill='x', pady=3)
-            tk.Label(f, text=label_text, width=15, anchor='w', bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(side='left')
+            tk.Label(f, text=label_text, width=15, anchor='w', bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Arial', 10, 'bold')).pack(side='left')
             entry = tk.Entry(f, width=30, font=('Arial', 10))
+            restringir_entrada(entry, ventana, key, 'Especialidades')
             entry.pack(side='right')
             entries[key] = entry
         
@@ -943,8 +1136,8 @@ class AppTablasMaestras:
         frame.pack(padx=30, pady=10)
         
         campos = [
-            ('Código *', 'codigo', valores[1]),
-            ('Nombre *', 'nombre', valores[2]),
+            ('Código (*)', 'codigo', valores[1]),
+            ('Nombre (*)', 'nombre', valores[2]),
             ('Descripción', 'descripcion', valores[3] or '')
         ]
         
@@ -955,6 +1148,7 @@ class AppTablasMaestras:
             tk.Label(f, text=label_text, width=15, anchor='w', bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
             entry = tk.Entry(f, width=30, font=('Arial', 10))
             entry.insert(0, default)
+            restringir_entrada(entry, ventana, key, 'Especialidades')
             entry.pack(side='right')
             entries[key] = entry
         
@@ -1070,7 +1264,6 @@ class AppTablasMaestras:
             show='headings',
             height=15
         )
-        tree.configure(style='Masters.Treeview')
         tree.tag_configure('par', background='#F2F7FA')
         tree.tag_configure('impar', background='#FFFFFF')
         tree.heading('ID', text='ID')
@@ -1109,7 +1302,7 @@ class AppTablasMaestras:
         tk.Label(
             ventana,
             text="➕ AGREGAR TÉRMINO SNOMED CT",
-            font=('Segoe UI', 16, 'bold'),
+            font=('Arial', 16, 'bold'),
             bg=COLOR_FONDO,
             fg='#2196F3'
         ).pack(pady=10)
@@ -1118,9 +1311,9 @@ class AppTablasMaestras:
         frame.pack(padx=30, pady=10)
         
         campos = [
-            ('Código *', 'codigo'),
-            ('Término *', 'termino'),
-            ('Categoría *', 'categoria'),
+            ('Código (*)', 'codigo'),
+            ('Término (*)', 'termino'),
+            ('Categoría (*)', 'categoria'),
             ('Descripción', 'descripcion')
         ]
         
@@ -1128,8 +1321,9 @@ class AppTablasMaestras:
         for label_text, key in campos:
             f = tk.Frame(frame, bg=COLOR_FONDO)
             f.pack(fill='x', pady=3)
-            tk.Label(f, text=label_text, width=15, anchor='w', bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(side='left')
+            tk.Label(f, text=label_text, width=15, anchor='w', bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Arial', 10, 'bold')).pack(side='left')
             entry = tk.Entry(f, width=30, font=('Arial', 10))
+            restringir_entrada(entry, ventana, key, 'SnomedCT')
             entry.pack(side='right')
             entries[key] = entry
         
@@ -1192,9 +1386,9 @@ class AppTablasMaestras:
         frame.pack(padx=30, pady=10)
         
         campos = [
-            ('Código *', 'codigo', valores[1]),
-            ('Término *', 'termino', valores[2]),
-            ('Categoría *', 'categoria', valores[3]),
+            ('Código (*)', 'codigo', valores[1]),
+            ('Término (*)', 'termino', valores[2]),
+            ('Categoría (*)', 'categoria', valores[3]),
             ('Descripción', 'descripcion', valores[4] or '')
         ]
         
@@ -1205,6 +1399,7 @@ class AppTablasMaestras:
             tk.Label(f, text=label_text, width=15, anchor='w', bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
             entry = tk.Entry(f, width=30, font=('Arial', 10))
             entry.insert(0, default)
+            restringir_entrada(entry, ventana, key, 'SnomedCT')
             entry.pack(side='right')
             entries[key] = entry
         
@@ -1284,7 +1479,6 @@ class AppTablasMaestras:
             show='headings',
             height=10
         )
-        tree.configure(style='Masters.Treeview')
         tree.tag_configure('par', background='#F2F7FA')
         tree.tag_configure('impar', background='#FFFFFF')
         tree.heading('Código', text='Código')
@@ -1380,7 +1574,6 @@ class AppTablasMaestras:
             show='headings',
             height=15
         )
-        tree.configure(style='Masters.Treeview')
         tree.tag_configure('par', background='#F2F7FA')
         tree.tag_configure('impar', background='#FFFFFF')
         tree.heading('ID', text='ID')
@@ -1423,7 +1616,7 @@ class AppTablasMaestras:
         tk.Label(
             ventana,
             text="➕ AGREGAR FÁRMACO",
-            font=('Segoe UI', 16, 'bold'),
+            font=('Arial', 16, 'bold'),
             bg=COLOR_FONDO,
             fg='#FF9800'
         ).pack(pady=10)
@@ -1432,8 +1625,8 @@ class AppTablasMaestras:
         frame.pack(padx=30, pady=10)
         
         campos = [
-            ('Código *', 'codigo'),
-            ('Nombre *', 'nombre'),
+            ('Código (*)', 'codigo'),
+            ('Nombre (*)', 'nombre'),
             ('Principio Activo', 'principio_activo'),
             ('Presentación', 'presentacion'),
             ('Concentración', 'concentracion'),
@@ -1444,8 +1637,9 @@ class AppTablasMaestras:
         for label_text, key in campos:
             f = tk.Frame(frame, bg=COLOR_FONDO)
             f.pack(fill='x', pady=3)
-            tk.Label(f, text=label_text, width=18, anchor='w', bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(side='left')
+            tk.Label(f, text=label_text, width=18, anchor='w', bg=COLOR_FONDO, fg=COLOR_TEXTO, font=('Arial', 10, 'bold')).pack(side='left')
             entry = tk.Entry(f, width=28, font=('Arial', 10))
+            restringir_entrada(entry, ventana, key, 'Farmacos')
             entry.pack(side='right')
             entries[key] = entry
         
@@ -1508,8 +1702,8 @@ class AppTablasMaestras:
         frame.pack(padx=30, pady=10)
         
         campos = [
-            ('Código *', 'codigo', valores[1]),
-            ('Nombre *', 'nombre', valores[2]),
+            ('Código (*)', 'codigo', valores[1]),
+            ('Nombre (*)', 'nombre', valores[2]),
             ('Principio Activo', 'principio_activo', valores[3] or ''),
             ('Presentación', 'presentacion', valores[4] or ''),
             ('Concentración', 'concentracion', valores[5] or ''),
@@ -1523,6 +1717,7 @@ class AppTablasMaestras:
             tk.Label(f, text=label_text, width=18, anchor='w', bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
             entry = tk.Entry(f, width=28, font=('Arial', 10))
             entry.insert(0, default)
+            restringir_entrada(entry, ventana, key, 'Farmacos')
             entry.pack(side='right')
             entries[key] = entry
         

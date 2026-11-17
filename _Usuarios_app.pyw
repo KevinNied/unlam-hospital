@@ -26,6 +26,8 @@ import sqlite3
 import tkinter as tk
 from tkinter import messagebox, ttk
 import hashlib
+import re
+from pathlib import Path
 from datetime import datetime
 
 # ----------------------------------------------------------------
@@ -45,7 +47,7 @@ from Auditoria_utiles import (
 
 def conectar_bd():
     """Establece conexión con la base de datos Salud.db"""
-    return sqlite3.connect('BD/Salud.db')
+    return sqlite3.connect((Path(__file__).resolve().parent / 'BD' / 'Salud.db').as_uri() + '?mode=rw', uri=True)
 
 
 def hashear_password(password):
@@ -56,6 +58,41 @@ def hashear_password(password):
 # ================================================================
 # CRUD DE USUARIOS
 # ================================================================
+
+ROLES = {'admin', 'medico', 'enfermero', 'administrativo'}
+
+
+def caracteres_usuario(valor):
+    return re.fullmatch(r'[A-Za-z0-9_.-]*', valor) is not None
+
+
+def caracteres_nombre(valor):
+    return all(c.isalpha() or c in " -'’" for c in valor)
+
+
+def validar_password(password):
+    if not isinstance(password, str) or len(password) < 6 or not password.strip():
+        raise ValueError('La contraseña debe tener al menos 6 caracteres y no estar vacía.')
+
+
+def validar_datos(datos, alta=False):
+    datos = dict(datos)
+    for campo in ('nombre_completo', 'email', 'rol'):
+        datos[campo] = str(datos.get(campo) or '').strip()
+    nombre = datos['nombre_completo']
+    if not caracteres_nombre(nombre) or not any(c.isalpha() for c in nombre):
+        raise ValueError('Ingrese un nombre completo válido, sin números.')
+    if datos['email'] and not re.fullmatch(r'[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+', datos['email']):
+        raise ValueError('Ingrese un correo electrónico válido.')
+    if datos['rol'] not in ROLES:
+        raise ValueError('Seleccione un rol válido.')
+    if alta:
+        datos['usuario'] = str(datos.get('usuario') or '').strip().lower()
+        if not datos['usuario'] or not caracteres_usuario(datos['usuario']):
+            raise ValueError('El usuario solo admite letras, números, puntos, guiones y guion bajo.')
+        validar_password(datos.get('password'))
+    return datos
+
 
 def registrar_usuario(datos):
     """
@@ -72,10 +109,17 @@ def registrar_usuario(datos):
     Retorna:
         (True, id_nuevo) o (False, mensaje_error)
     """
+    conexion = None
     try:
+        datos = validar_datos(datos, alta=True)
         conexion = conectar_bd()
         cursor = conexion.cursor()
         
+        conexion.execute("BEGIN IMMEDIATE")
+        cursor.execute("SELECT 1 FROM Usuarios WHERE lower(usuario) = ?", (datos['usuario'],))
+        if cursor.fetchone():
+            conexion.close()
+            return False, "El nombre de usuario ya existe."
         password_hash = hashear_password(datos['password'])
         
         cursor.execute("""
@@ -117,6 +161,10 @@ def registrar_usuario(datos):
     except Exception as e:
         print(f"[ERROR] Error en registrar_usuario: {e}")
         return False, f"❌ Error: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
+
 
 
 def buscar_usuario(usuario):
@@ -175,16 +223,24 @@ def listar_usuarios(activos=True):
 
 def modificar_usuario(usuario_id, datos):
     """Modifica datos de un usuario (excepto contraseña)"""
+    conexion = None
     try:
+        datos = validar_datos(datos)
         conexion = conectar_bd()
+        conexion.execute("BEGIN IMMEDIATE")
         cursor = conexion.cursor()
         
         # ✅ Obtener datos anteriores para auditoría
         cursor.execute("""
-            SELECT usuario, nombre_completo, email, rol 
+            SELECT usuario, nombre_completo, email, rol, activo 
             FROM Usuarios WHERE id = ?
         """, (usuario_id,))
         anterior = cursor.fetchone()
+        if anterior and anterior[3] == 'admin' and anterior[4] == 1 and datos['rol'] != 'admin':
+            cursor.execute("SELECT COUNT(*) FROM Usuarios WHERE rol='admin' AND activo=1 AND id != ?", (usuario_id,))
+            if cursor.fetchone()[0] == 0:
+                conexion.close()
+                return False, 'No se puede cambiar el rol del último administrador activo.' 
         
         cursor.execute("""
             UPDATE Usuarios 
@@ -222,11 +278,17 @@ def modificar_usuario(usuario_id, datos):
         return False, "❌ No se encontró el usuario."
     except Exception as e:
         return False, f"❌ Error: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
+
 
 
 def cambiar_password(usuario_id, nueva_password):
     """Cambia la contraseña de un usuario"""
+    conexion = None
     try:
+        validar_password(nueva_password)
         conexion = conectar_bd()
         cursor = conexion.cursor()
         
@@ -258,23 +320,32 @@ def cambiar_password(usuario_id, nueva_password):
         return False, "❌ No se encontró el usuario."
     except Exception as e:
         return False, f"❌ Error: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
+
 
 
 def dar_baja_usuario(usuario_id):
     """Baja lógica de usuario (activo = 0)"""
+    conexion = None
     try:
         conexion = conectar_bd()
+        conexion.execute("BEGIN IMMEDIATE")
         cursor = conexion.cursor()
         
         # Verificar que no sea el último admin activo
-        cursor.execute("SELECT rol, usuario, nombre_completo FROM Usuarios WHERE id = ?", (usuario_id,))
+        cursor.execute("SELECT rol, usuario, nombre_completo, activo FROM Usuarios WHERE id = ?", (usuario_id,))
         resultado = cursor.fetchone()
         
         if not resultado:
             conexion.close()
             return False, "❌ No se encontró el usuario."
         
-        rol, usuario_login, nombre = resultado
+        rol, usuario_login, nombre, activo = resultado
+        if not activo:
+            conexion.close()
+            return False, "El usuario ya está inactivo."
         
         if rol == 'admin':
             cursor.execute("""
@@ -302,10 +373,15 @@ def dar_baja_usuario(usuario_id):
         return True, "✅ Usuario dado de baja correctamente."
     except Exception as e:
         return False, f"❌ Error: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
+
 
 
 def reactivar_usuario(usuario_id):
     """Reactiva un usuario dado de baja"""
+    conexion = None
     try:
         conexion = conectar_bd()
         cursor = conexion.cursor()
@@ -314,7 +390,7 @@ def reactivar_usuario(usuario_id):
         cursor.execute("SELECT usuario, nombre_completo FROM Usuarios WHERE id = ?", (usuario_id,))
         resultado = cursor.fetchone()
         
-        cursor.execute("UPDATE Usuarios SET activo = 1 WHERE id = ?", (usuario_id,))
+        cursor.execute("UPDATE Usuarios SET activo = 1 WHERE id = ? AND activo = 0", (usuario_id,))
         conexion.commit()
         afectados = cursor.rowcount
         conexion.close()
@@ -331,6 +407,10 @@ def reactivar_usuario(usuario_id):
         return False, "❌ No se encontró el usuario."
     except Exception as e:
         return False, f"❌ Error: {e}"
+    finally:
+        if conexion is not None:
+            conexion.close()
+
 
 
 # ================================================================
@@ -587,7 +667,7 @@ class AppUsuarios:
         tk.Label(ventana, text="➕ NUEVO USUARIO",
                 font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#4CAF50').pack(pady=10)
         
-        tk.Label(ventana, text="Los campos con * son obligatorios",
+        tk.Label(ventana, text="Los campos con (*) son obligatorios",
                 font=('Arial', 9), bg='#f0f0f0', fg='#666666').pack(pady=2)
         
         frame_campos = tk.Frame(ventana, bg='#f0f0f0')
@@ -596,15 +676,16 @@ class AppUsuarios:
         # Usuario
         frame = tk.Frame(frame_campos, bg='#f0f0f0')
         frame.pack(fill='x', pady=4)
-        tk.Label(frame, text="Usuario *:", width=18, anchor='w',
+        tk.Label(frame, text="Usuario (*):", width=18, anchor='w',
                 bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
         entry_usuario = tk.Entry(frame, width=28, font=('Arial', 10))
+        entry_usuario.configure(validate='key', validatecommand=(ventana.register(caracteres_usuario), '%P'))
         entry_usuario.pack(side='right')
         
         # Password
         frame = tk.Frame(frame_campos, bg='#f0f0f0')
         frame.pack(fill='x', pady=4)
-        tk.Label(frame, text="Contraseña *:", width=18, anchor='w',
+        tk.Label(frame, text="Contraseña (*):", width=18, anchor='w',
                 bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
         entry_password = tk.Entry(frame, width=28, font=('Arial', 10), show='●')
         entry_password.pack(side='right')
@@ -612,7 +693,7 @@ class AppUsuarios:
         # Confirmar Password
         frame = tk.Frame(frame_campos, bg='#f0f0f0')
         frame.pack(fill='x', pady=4)
-        tk.Label(frame, text="Confirmar *:", width=18, anchor='w',
+        tk.Label(frame, text="Confirmar (*):", width=18, anchor='w',
                 bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
         entry_confirm = tk.Entry(frame, width=28, font=('Arial', 10), show='●')
         entry_confirm.pack(side='right')
@@ -620,9 +701,10 @@ class AppUsuarios:
         # Nombre completo
         frame = tk.Frame(frame_campos, bg='#f0f0f0')
         frame.pack(fill='x', pady=4)
-        tk.Label(frame, text="Nombre Completo *:", width=18, anchor='w',
+        tk.Label(frame, text="Nombre Completo (*):", width=18, anchor='w',
                 bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
         entry_nombre = tk.Entry(frame, width=28, font=('Arial', 10))
+        entry_nombre.configure(validate='key', validatecommand=(ventana.register(caracteres_nombre), '%P'))
         entry_nombre.pack(side='right')
         
         # Email
@@ -636,11 +718,10 @@ class AppUsuarios:
         # Rol
         frame = tk.Frame(frame_campos, bg='#f0f0f0')
         frame.pack(fill='x', pady=4)
-        tk.Label(frame, text="Rol *:", width=18, anchor='w',
+        tk.Label(frame, text="Rol (*):", width=18, anchor='w',
                 bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
         combo_rol = ttk.Combobox(frame, width=25, font=('Arial', 10), state='readonly')
         combo_rol['values'] = ['admin', 'medico', 'enfermero', 'administrativo']
-        combo_rol.current(3)
         combo_rol.pack(side='right')
         
         def guardar():
@@ -764,6 +845,8 @@ class AppUsuarios:
             tk.Label(frame, text=label_text + ":", width=15, anchor='w',
                     bg='#f0f0f0', font=('Arial', 10)).pack(side='left')
             entry = tk.Entry(frame, width=30, font=('Arial', 10))
+            if key == 'nombre_completo':
+                entry.configure(validate='key', validatecommand=(ventana.register(caracteres_nombre), '%P'))
             entry.pack(side='right')
             entries[key] = entry
         
@@ -778,9 +861,14 @@ class AppUsuarios:
         entries['rol'] = combo_rol
         
         usuario_id = None
+        usuario_seleccionado = None
         
         def buscar():
-            nonlocal usuario_id
+            nonlocal usuario_id, usuario_seleccionado
+            usuario_id = None
+            usuario_seleccionado = None
+            frame_entries.pack_forget()
+            label_info.config(text="Ingrese un usuario y presione Buscar")
             u = entry_usuario.get().strip()
             if not u:
                 messagebox.showerror("Error", "Ingrese un usuario.")
@@ -789,6 +877,7 @@ class AppUsuarios:
             datos = buscar_usuario(u)
             if datos:
                 usuario_id = datos['id']
+                usuario_seleccionado = u
                 label_info.config(text=f"{datos['nombre_completo']} ({datos['rol'].upper()})")
                 entries['nombre_completo'].delete(0, tk.END)
                 entries['nombre_completo'].insert(0, datos['nombre_completo'])
@@ -807,7 +896,7 @@ class AppUsuarios:
         
         def guardar():
             nonlocal usuario_id
-            if not usuario_id:
+            if not usuario_id or entry_usuario.get().strip() != usuario_seleccionado:
                 messagebox.showerror("Error", "Primero busque un usuario.")
                 return
             

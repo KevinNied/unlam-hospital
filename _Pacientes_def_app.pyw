@@ -26,7 +26,8 @@
 import sqlite3
 import tkinter as tk
 from tkinter import messagebox, ttk
-from datetime import datetime
+from datetime import datetime, date
+import re
 
 # ----------------------------------------------------------------
 # IMPORTAR FUNCIONES DE AUDITORÍA
@@ -48,12 +49,114 @@ def conectar_bd():
     return sqlite3.connect('BD/Salud.db')
 
 
+
+# -------------------- VALIDACIONES --------------------
+
+def solo_digitos(valor, maximo=8):
+    return re.fullmatch(r'[0-9]*', valor) is not None and len(valor) <= maximo
+
+
+def solo_letras(valor):
+    return all(c.isalpha() or c in " -'’" for c in valor)
+
+
+def caracteres_telefono(valor):
+    return re.fullmatch(r'[0-9+() -]*', valor) is not None
+
+
+def formatear_fecha(valor):
+    numeros = ''.join(c for c in valor if c in '0123456789')[:8]
+    return '-'.join(p for p in (numeros[:4], numeros[4:6], numeros[6:]) if p)
+
+
+def error_campo(campo, valor):
+    valor = valor.strip()
+    if campo == 'dni' and not re.fullmatch(r'[0-9]{7,8}', valor):
+        return 'El DNI debe tener 7 u 8 dígitos.'
+    if campo in ('nombre', 'apellido') and (not solo_letras(valor) or not any(c.isalpha() for c in valor)):
+        return f'Ingrese un {campo} válido, sin números.'
+    if campo == 'fecha_nac':
+        try:
+            if not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', valor):
+                raise ValueError()
+            nacimiento = date.fromisoformat(valor)
+        except ValueError:
+            return 'Ingrese una fecha válida (AAAA-MM-DD).'
+        if nacimiento > date.today():
+            return 'La fecha de nacimiento no puede ser futura.'
+    if campo == 'sexo' and valor.upper() not in ('M', 'F'):
+        return 'El sexo debe ser M o F.'
+    if campo == 'telefono' and valor and (not caracteres_telefono(valor) or not 6 <= sum(c in '0123456789' for c in valor) <= 15):
+        return 'Ingrese un teléfono con 6 a 15 dígitos.'
+    if campo == 'email' and valor and not re.fullmatch(r'[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+', valor):
+        return 'Ingrese un correo electrónico válido.'
+    return ''
+
+
+def configurar_validacion(entry, campo, consulta=False):
+    """Restringe la escritura y el pegado, sin cambiar el diseño."""
+    reglas = {
+        'dni': lambda v: solo_digitos(v, 9 if consulta else 8),
+        'nombre': solo_letras, 'apellido': solo_letras,
+        'telefono': caracteres_telefono,
+        'sexo': lambda v: v.upper() in ('', 'M', 'F'),
+        'fecha_nac': lambda v: re.fullmatch(r'[0-9-]*', v) is not None and sum(c in '0123456789' for c in v) <= 8,
+    }
+    if campo in reglas:
+        entry.configure(validate='key', validatecommand=(entry.register(reglas[campo]), '%P'))
+    if campo == 'fecha_nac':
+        # StringVar detecta también pegar con el menú contextual.
+        variable = tk.StringVar(master=entry, value=entry.get())
+        entry.configure(textvariable=variable)
+        entry._fecha_var = variable
+        pendiente = [None]
+        def aplicar():
+            pendiente[0] = None
+            if not entry.winfo_exists():
+                return
+            texto = variable.get()
+            cursor = entry.index(tk.INSERT)
+            cantidad = sum(c in '0123456789' for c in texto[:cursor])
+            nuevo = formatear_fecha(texto)
+            if texto == nuevo:
+                return
+            entry.configure(validate='none')
+            variable.set(nuevo)
+            entry.configure(validate='key')
+            posicion = 0
+            while posicion < len(nuevo) and cantidad:
+                if nuevo[posicion] in '0123456789':
+                    cantidad -= 1
+                posicion += 1
+            entry.icursor(posicion)
+        def cambio(*args):
+            if pendiente[0] is None:
+                pendiente[0] = entry.after_idle(aplicar)
+        traza = variable.trace_add('write', cambio)
+        def borrar_separador(event):
+            pos = entry.index(tk.INSERT)
+            if not entry.selection_present() and pos > 1 and entry.get()[pos-1] == '-':
+                entry.delete(pos-2, pos)
+                return 'break'
+        entry.bind('<BackSpace>', borrar_separador, add='+')
+        def limpiar(event):
+            if pendiente[0] is not None:
+                entry.after_cancel(pendiente[0])
+            variable.trace_remove('write', traza)
+        # Guardar el identificador para liberar el callback al cerrar.
+        entry.bind('<Destroy>', limpiar, add='+')
+
+
 # -------------------- CRUD DE PACIENTES --------------------
 
 def registrar_paciente(datos):
     """
     HU-01: Registrar nuevo paciente (CREATE)
     """
+    for campo in ('dni', 'nombre', 'apellido', 'fecha_nac', 'sexo', 'telefono', 'email'):
+        error = error_campo(campo, datos.get(campo, ''))
+        if error:
+            return False, error
     try:
         conexion = conectar_bd()
         cursor = conexion.cursor()
@@ -177,14 +280,14 @@ def listar_pacientes(activos=True):
                 SELECT id, dni, nombre, apellido, telefono, activo 
                 FROM Pacientes 
                 WHERE activo = 1
-                ORDER BY apellido, nombre
+                ORDER BY id ASC
             """)
         else:
             cursor.execute("""
                 SELECT id, dni, nombre, apellido, telefono, activo 
                 FROM Pacientes 
                 WHERE activo = 0
-                ORDER BY apellido, nombre
+                ORDER BY id ASC
             """)
         
         pacientes = cursor.fetchall()
@@ -199,6 +302,10 @@ def listar_pacientes(activos=True):
 
 def modificar_paciente(paciente_id, datos):
     """Modifica datos de un paciente"""
+    for campo in ('telefono', 'email'):
+        error = error_campo(campo, datos.get(campo, ''))
+        if error:
+            return False, error
     try:
         conexion = conectar_bd()
         cursor = conexion.cursor()
@@ -699,7 +806,7 @@ class AppPacientes:
         
         tk.Label(
             ventana,
-            text="Los campos con * son obligatorios",
+            text="Los campos con (*) son obligatorios",
             font=('Arial', 9),
             bg='#f0f0f0',
             fg='#666666'
@@ -712,7 +819,7 @@ class AppPacientes:
             ('DNI *', 'dni', True),
             ('Nombre *', 'nombre', True),
             ('Apellido *', 'apellido', True),
-            ('Fecha Nac. (YYYY-MM-DD) *', 'fecha_nac', True),
+            ('Fecha (AAAA-MM-DD) *', 'fecha_nac', True),
             ('Sexo (M/F) *', 'sexo', True),
             ('Teléfono', 'telefono', False),
             ('Email', 'email', False),
@@ -725,7 +832,7 @@ class AppPacientes:
             frame = tk.Frame(frame_campos, bg='#f0f0f0')
             frame.pack(fill='x', pady=3)
             
-            texto = label_text + ' *' if obligatorio else label_text
+            texto = label_text.removesuffix(' *') + ' (*)' if obligatorio else label_text
             tk.Label(
                 frame,
                 text=texto,
@@ -738,6 +845,10 @@ class AppPacientes:
             entry = tk.Entry(frame, width=28, font=('Arial', 10))
             entry.pack(side='right')
             self.entries[key] = entry
+            configurar_validacion(entry, key)
+            if key in ('dni', 'nombre', 'apellido', 'fecha_nac', 'sexo', 'telefono', 'email'):
+                entry.bind('<KeyRelease>', lambda e, k=key, w=entry: w.configure(fg='red' if error_campo(k, w.get()) else 'black'), add='+')
+                entry.bind('<FocusOut>', lambda e, k=key, w=entry: w.configure(fg='red' if error_campo(k, w.get()) else 'black'), add='+')
         
         def guardar():
             obligatorios = ['dni', 'nombre', 'apellido', 'fecha_nac', 'sexo']
@@ -825,6 +936,7 @@ class AppPacientes:
         ).pack(side='left', padx=10)
         
         entry_dni = tk.Entry(frame_busqueda, font=('Arial', 12), width=20)
+        configurar_validacion(entry_dni, 'dni', consulta=True)
         entry_dni.pack(side='left', padx=10)
         entry_dni.focus()
         
@@ -843,8 +955,8 @@ class AppPacientes:
         
         def buscar():
             dni = entry_dni.get().strip()
-            if not dni:
-                messagebox.showerror("Error", "Ingrese un DNI para buscar.")
+            if not re.fullmatch(r'[0-9]{7,9}', dni):
+                messagebox.showerror("Error", "Ingrese un DNI de 7 a 9 dígitos.")
                 return
             
             resultado = buscar_paciente(dni)
@@ -923,6 +1035,7 @@ class AppPacientes:
         ).pack(side='left', padx=10)
         
         entry_dni = tk.Entry(frame_buscar, font=('Arial', 11), width=20)
+        configurar_validacion(entry_dni, 'dni', consulta=True)
         entry_dni.pack(side='left', padx=10)
         entry_dni.focus()
         
@@ -966,17 +1079,23 @@ class AppPacientes:
             entries_mod[key] = entry
         
         paciente_id_actual = None
+        dni_seleccionado = None
         
         def buscar_modificar():
-            nonlocal paciente_id_actual
+            nonlocal paciente_id_actual, dni_seleccionado
+            paciente_id_actual = None
+            dni_seleccionado = None
+            frame_entries.pack_forget()
+            label_nombre.config(text="Ingrese un DNI y presione Buscar")
             dni = entry_dni.get().strip()
-            if not dni:
-                messagebox.showerror("Error", "Ingrese un DNI.")
+            if not re.fullmatch(r'[0-9]{7,9}', dni):
+                messagebox.showerror("Error", "Ingrese un DNI de 7 a 9 dígitos.")
                 return
             
             resultado = buscar_paciente(dni)
             if resultado:
                 paciente_id_actual = resultado['id']
+                dni_seleccionado = dni
                 label_nombre.config(
                     text=f"Paciente: {resultado['nombre']} {resultado['apellido']} (HC: {resultado['id']})",
                     fg='#003366'
@@ -1008,7 +1127,7 @@ class AppPacientes:
         
         def guardar_modificacion():
             nonlocal paciente_id_actual
-            if not paciente_id_actual:
+            if not paciente_id_actual or entry_dni.get().strip() != dni_seleccionado:
                 messagebox.showerror("Error", "Primero busque un paciente.")
                 return
             
@@ -1191,13 +1310,14 @@ class AppPacientes:
         ).pack(side='left', padx=10)
         
         entry_dni = tk.Entry(frame, font=('Arial', 11), width=20)
+        configurar_validacion(entry_dni, 'dni', consulta=True)
         entry_dni.pack(side='left', padx=10)
         entry_dni.focus()
         
         def confirmar_baja():
             dni = entry_dni.get().strip()
-            if not dni:
-                messagebox.showerror("Error", "Ingrese un DNI.")
+            if not re.fullmatch(r'[0-9]{7,9}', dni):
+                messagebox.showerror("Error", "Ingrese un DNI de 7 a 9 dígitos.")
                 return
             
             paciente = buscar_paciente(dni)

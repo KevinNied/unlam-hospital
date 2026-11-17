@@ -1,0 +1,224 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "patient-6",
+        "active": true,
+        "identifier": [
+          {
+            "system": "urn:openhis:pacientes",
+            "value": "33885012"
+          }
+        ],
+        "name": [
+          {
+            "family": "Sanchez",
+            "given": [
+              "Pedro"
+            ]
+          }
+        ],
+        "gender": "male",
+        "birthDate": "1988-07-15"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-4-8480-6",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-6"
+        },
+        "effectiveDateTime": "2026-09-21 17:12:25",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8480-6",
+              "display": "Systolic blood pressure"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 135,
+          "unit": "mm[Hg]"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-4-8462-4",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-6"
+        },
+        "effectiveDateTime": "2026-09-21 17:12:25",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8462-4",
+              "display": "Diastolic blood pressure"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 85,
+          "unit": "mm[Hg]"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-4-8867-4",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-6"
+        },
+        "effectiveDateTime": "2026-09-21 17:12:25",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8867-4",
+              "display": "Heart rate"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 89,
+          "unit": "/min"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-4-8310-5",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-6"
+        },
+        "effectiveDateTime": "2026-09-21 17:12:25",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8310-5",
+              "display": "Body temperature"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 37.0,
+          "unit": "Cel"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-4-59408-5",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-6"
+        },
+        "effectiveDateTime": "2026-09-21 17:12:25",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "59408-5",
+              "display": "Oxygen saturation"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 92,
+          "unit": "%"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Practitioner",
+        "id": "practitioner-3",
+        "active": true,
+        "identifier": [
+          {
+            "system": "urn:openhis:profesionales",
+            "value": "25987654"
+          }
+        ],
+        "name": [
+          {
+            "family": "Suárez",
+            "given": [
+              "Martín"
+            ]
+          }
+        ],
+        "gender": "male",
+        "qualification": [
+          {
+            "identifier": [
+              {
+                "value": "MN 18732"
+              }
+            ]
+          }
+        ],
+        "birthDate": "1978-11-10"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "medrx-2",
+        "status": "active",
+        "intent": "order",
+        "subject": {
+          "reference": "Patient/patient-6"
+        },
+        "requester": {
+          "reference": "Practitioner/practitioner-3"
+        },
+        "medicationCodeableConcept": {
+          "text": "Enalapril",
+          "coding": [
+            {
+              "system": "urn:openhis:farmacos",
+              "code": "ATC-001",
+              "display": "Enalapril"
+            }
+          ]
+        },
+        "dosageInstruction": [
+          {
+            "text": "10 cada 24hs",
+            "route": {
+              "text": "oral"
+            }
+          }
+        ],
+        "authoredOn": "2026-09-21 20:16:22",
+        "dispenseRequest": {
+          "quantity": {
+            "value": 1
+          }
+        },
+        "note": [
+          {
+            "text": "tomar en ayunas"
+          }
+        ]
+      }
+    }
+  ]
+}

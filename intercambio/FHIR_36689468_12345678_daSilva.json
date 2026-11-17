@@ -1,0 +1,190 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "patient-6",
+        "active": true,
+        "identifier": [
+          {
+            "system": "urn:openhis:pacientes",
+            "value": "36689468"
+          }
+        ],
+        "name": [
+          {
+            "family": "Holmes",
+            "given": [
+              "Sherlock"
+            ]
+          }
+        ],
+        "gender": "male",
+        "birthDate": "1950-05-04"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-2-8480-6",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-6"
+        },
+        "effectiveDateTime": "2026-10-28 00:21:36",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8480-6",
+              "display": "Systolic blood pressure"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 32,
+          "unit": "mm[Hg]"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-2-8867-4",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-6"
+        },
+        "effectiveDateTime": "2026-10-28 00:21:36",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8867-4",
+              "display": "Heart rate"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 20,
+          "unit": "/min"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-2-8310-5",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-6"
+        },
+        "effectiveDateTime": "2026-10-28 00:21:36",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8310-5",
+              "display": "Body temperature"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 38.0,
+          "unit": "Cel"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-2-59408-5",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-6"
+        },
+        "effectiveDateTime": "2026-10-28 00:21:36",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "59408-5",
+              "display": "Oxygen saturation"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 80,
+          "unit": "%"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Practitioner",
+        "id": "practitioner-1",
+        "active": true,
+        "identifier": [
+          {
+            "system": "urn:openhis:profesionales",
+            "value": "12345678"
+          }
+        ],
+        "name": [
+          {
+            "family": "González",
+            "given": [
+              "María"
+            ]
+          }
+        ],
+        "gender": "female",
+        "qualification": [
+          {
+            "identifier": [
+              {
+                "value": "MN 12345"
+              }
+            ]
+          }
+        ],
+        "birthDate": "1980-05-15"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "medrx-2",
+        "status": "active",
+        "intent": "order",
+        "subject": {
+          "reference": "Patient/patient-6"
+        },
+        "requester": {
+          "reference": "Practitioner/practitioner-1"
+        },
+        "medicationCodeableConcept": {
+          "text": "Amoxicilina",
+          "coding": [
+            {
+              "system": "urn:openhis:farmacos",
+              "code": "ATC-003",
+              "display": "Amoxicilina"
+            }
+          ]
+        },
+        "dosageInstruction": [
+          {
+            "text": "400mg c/8 h",
+            "route": {
+              "text": "oral"
+            }
+          }
+        ],
+        "authoredOn": "2026-09-09 01:15:00"
+      }
+    }
+  ]
+}

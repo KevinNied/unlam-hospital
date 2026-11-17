@@ -1,0 +1,166 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "patient-10",
+        "active": true,
+        "identifier": [
+          {
+            "system": "urn:openhis:pacientes",
+            "value": "25793706"
+          }
+        ],
+        "name": [
+          {
+            "family": "Alegria",
+            "given": [
+              "Jessica"
+            ]
+          }
+        ],
+        "gender": "female",
+        "birthDate": "1990-08-12"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-3-8480-6",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-10"
+        },
+        "effectiveDateTime": "2026-10-28 00:28:58",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8480-6",
+              "display": "Systolic blood pressure"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 23,
+          "unit": "mm[Hg]"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-3-8867-4",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-10"
+        },
+        "effectiveDateTime": "2026-10-28 00:28:58",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8867-4",
+              "display": "Heart rate"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 60,
+          "unit": "/min"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-3-59408-5",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/patient-10"
+        },
+        "effectiveDateTime": "2026-10-28 00:28:58",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "59408-5",
+              "display": "Oxygen saturation"
+            }
+          ]
+        },
+        "valueQuantity": {
+          "value": 90,
+          "unit": "%"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Practitioner",
+        "id": "practitioner-1",
+        "active": true,
+        "identifier": [
+          {
+            "system": "urn:openhis:profesionales",
+            "value": "12345678"
+          }
+        ],
+        "name": [
+          {
+            "family": "González",
+            "given": [
+              "María"
+            ]
+          }
+        ],
+        "gender": "female",
+        "qualification": [
+          {
+            "identifier": [
+              {
+                "value": "MN 12345"
+              }
+            ]
+          }
+        ],
+        "birthDate": "1980-05-15"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "medrx-4",
+        "status": "active",
+        "intent": "order",
+        "subject": {
+          "reference": "Patient/patient-10"
+        },
+        "requester": {
+          "reference": "Practitioner/practitioner-1"
+        },
+        "medicationCodeableConcept": {
+          "text": "Insulina Glargina",
+          "coding": [
+            {
+              "system": "urn:openhis:farmacos",
+              "code": "ATC-008",
+              "display": "Insulina Glargina"
+            }
+          ]
+        },
+        "dosageInstruction": [
+          {
+            "text": "200ml A voluntad",
+            "route": {
+              "text": "intravenosa"
+            }
+          }
+        ],
+        "authoredOn": "2026-10-28 00:28:16"
+      }
+    }
+  ]
+}

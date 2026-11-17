@@ -165,7 +165,7 @@ MODULOS = {
         'modulos': [
             {'nombre': 'Interoperabilidad FHIR', 'archivo': '_Interoperabilidad_FHIR.pyw',
              'descripcion': 'Importación y exportación de recursos FHIR', 'icono': '🔄'},
-            {'nombre': 'Gestión DICOM', 'archivo': '_Herramientas_Dicom_Visor.pyw',
+            {'nombre': 'Gestión DICOM', 'archivo': '_Herramientas_DICOM_Visor.pyw',
              'descripcion': 'Conversión y anonimización de imágenes médicas', 'icono': '🩻'}
         ]
     },
