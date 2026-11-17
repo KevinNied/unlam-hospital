@@ -4,6 +4,9 @@ Importador con previsualización y confirmación explícita antes de escribir en
 Requiere Python 3 estándar (tkinter, sqlite3, json). No requiere paquetes externos.
 """
 import json
+import math
+import re
+from copy import deepcopy
 import sqlite3
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -99,20 +102,52 @@ def _resource_ref(resource, key):
     ref = (resource.get(key) or {}).get("reference", "")
     if not isinstance(ref, str):
         return ""
-    return ref.split("/")[-1] if "/" in ref else ref
+    expected = {"subject": "Patient", "requester": "Practitioner"}.get(key)
+    if expected and re.fullmatch(expected + r"/[A-Za-z0-9.\-]{1,64}", ref):
+        return ref.split("/", 1)[1]
+    return ""
 
 
 def _parse_date(value):
     """Normaliza fechas ISO a YYYY-MM-DD; no inventa fechas faltantes."""
-    if not value:
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
         return ""
-    value = str(value).strip()
     try:
-        if len(value) == 4 and value.isdigit():
-            return value + "-01-01"
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).date().isoformat()
+        birth = datetime.strptime(value, "%Y-%m-%d").date()
+        return value if birth <= datetime.now().date() else ""
     except ValueError:
-        return value[:10] if len(value) >= 10 else ""
+        return ""
+
+
+def validar_observacion(r):
+    coding = _first_coding(r)
+    code = str(coding.get("code") or "")
+    if code not in LOINC:
+        raise ValueError("Código de observación no compatible.")
+    if coding.get("system") != "http://loinc.org":
+        raise ValueError("El código debe identificar el sistema LOINC.")
+    column, unit = LOINC[code]
+    q = r.get("valueQuantity") or {}
+    value = q.get("value")
+    if type(value) not in (int, float) or not math.isfinite(value):
+        raise ValueError("El valor debe ser un número finito.")
+    aliases = {"mm[Hg]": {"mm[Hg]", "mmHg"}, "/min": {"/min", "bpm", "lpm", "beats/min"}, "Cel": {"Cel", "°C", "C"}, "%": {"%"}}
+    if (q.get("code") or q.get("unit")) not in aliases[unit]:
+        raise ValueError("Unidad no compatible con el código LOINC.")
+    if q.get("system") not in (None, "", "http://unitsofmeasure.org"):
+        raise ValueError("Sistema de unidades no compatible.")
+    if column != "temperatura" and (value < 0 or value % 1):
+        raise ValueError("Se requiere un entero no negativo.")
+    if column == "saturacion_oxigeno" and value > 100:
+        raise ValueError("La saturación debe estar entre 0 y 100.")
+    fecha = r.get("effectiveDateTime") or r.get("issued")
+    if not isinstance(fecha, str) or not ("T" in fecha or " " in fecha):
+        raise ValueError("Falta fecha y hora de medición.")
+    try:
+        datetime.fromisoformat(fecha.replace("Z", "+00:00"))
+    except ValueError:
+        raise ValueError("Fecha y hora de medición inválidas.") from None
+    return value
 
 
 def _resource_index(resources, kind):
@@ -123,6 +158,16 @@ def _resource_index(resources, kind):
 def preparar_importacion(datos, con):
     """Analiza JSON, arma resumen y señala faltantes antes de tocar la BD."""
     recursos = _entries(datos)
+    if not recursos:
+        raise ValueError("El archivo no contiene recursos.")
+    vistos = set()
+    for r in recursos:
+        if not isinstance(r.get("id"), str) or not r["id"].strip():
+            raise ValueError("Cada recurso debe tener un id para este importador.")
+        key = (r.get("resourceType"), r["id"])
+        if key in vistos:
+            raise ValueError("Identificador de recurso repetido en el archivo.")
+        vistos.add(key)
     permitidos = {"Patient", "Practitioner", "Observation", "MedicationRequest"}
     desconocidos = sorted({r.get("resourceType", "(sin resourceType)") for r in recursos
                            if r.get("resourceType") not in permitidos})
@@ -196,6 +241,7 @@ def preparar_importacion(datos, con):
 
     # Preflight de observaciones y prescripciones.
     obs_count = rx_count = 0
+    observed = set()
     for r in recursos:
         tipo = r.get("resourceType")
         if tipo == "Observation":
@@ -204,10 +250,7 @@ def preparar_importacion(datos, con):
                 issues.append("Observation sin subject.reference: no se puede asociar a un paciente.")
                 continue
             if patient_ref not in patients:
-                try: exists = con.execute("SELECT id FROM Pacientes WHERE CAST(id AS TEXT)=? OR dni=?", (patient_ref, patient_ref)).fetchone()
-                except sqlite3.Error: exists = None
-                if not exists:
-                    issues.append(f"Observation: Patient/{patient_ref} no está incluido en el archivo ni se reconoce como ID/DNI local.")
+                issues.append(f"Observation: Patient/{patient_ref} debe estar incluido en el archivo; no se infieren IDs locales.")
             coding = _first_coding(r)
             code = str(coding.get("code") or "")
             if code not in LOINC:
@@ -217,6 +260,19 @@ def preparar_importacion(datos, con):
             if val is None:
                 issues.append(f"Observation LOINC {code}: no contiene valueQuantity.value.")
                 continue
+            try:
+                validar_observacion(r)
+            except ValueError as exc:
+                issues.append(f"Observation/{r.get('id')}: {exc}")
+                continue
+            if r.get("status") != "final":
+                issues.append("Solo se importan observaciones con estado final.")
+                continue
+            key = (patient_ref, r.get("effectiveDateTime") or r.get("issued"), code)
+            if key in observed:
+                issues.append("Observation repetida para el mismo paciente, fecha y código.")
+                continue
+            observed.add(key)
             obs_count += 1
             actions.append(("Importar signo vital", f"Paciente Patient/{patient_ref} | {coding.get('display') or code}: {val} {(r.get('valueQuantity') or {}).get('unit','')} | fecha {r.get('effectiveDateTime') or r.get('issued') or 'no informada'}", "observation"))
         elif tipo == "MedicationRequest":
@@ -247,15 +303,13 @@ def preparar_importacion(datos, con):
             if not freq: freq = dose_text or "Según indicación importada"
             missing = []
             if not patient_ref: missing.append("subject.reference")
-            elif patient_ref not in patients:
-                try: patient_exists = con.execute("SELECT id FROM Pacientes WHERE CAST(id AS TEXT)=? OR dni=?", (patient_ref, patient_ref)).fetchone()
-                except sqlite3.Error: patient_exists = None
-                if not patient_exists: missing.append(f"paciente Patient/{patient_ref} no encontrado")
+            elif patient_ref not in patients: missing.append("paciente no incluido en el archivo")
             if not practitioner_ref: missing.append("requester.reference (profesional prescriptor)")
-            elif practitioner_ref not in practitioners:
-                try: prof_exists = con.execute("SELECT id FROM Profesionales WHERE CAST(id AS TEXT)=? OR dni=?", (practitioner_ref, practitioner_ref)).fetchone()
-                except sqlite3.Error: prof_exists = None
-                if not prof_exists: missing.append(f"profesional Practitioner/{practitioner_ref} no encontrado")
+            elif practitioner_ref not in practitioners: missing.append("profesional no incluido en el archivo")
+            if r.get("status") != "active": missing.append("estado active")
+            quantity = (r.get("dispenseRequest") or {}).get("quantity", {}).get("value")
+            if quantity is not None and (type(quantity) not in (int, float) or not math.isfinite(quantity) or quantity <= 0 or quantity % 1):
+                missing.append("cantidad entera positiva")
             if not med_display or med_display == "Medicamento sin nombre": missing.append("medicationCodeableConcept")
             if not dose_text: missing.append("dosageInstruction/dosis")
             if missing:
@@ -339,6 +393,10 @@ def ejecutar_importacion(plan, ruta_archivo):
         raise ValueError("Hay observaciones pendientes de resolver. No se importó ningún dato.\n\n- " + "\n- ".join(plan["issues"]))
     con = conectar_bd()
     try:
+        con.execute("BEGIN IMMEDIATE")
+        plan = preparar_importacion(deepcopy(plan["resources"]), con)
+        if plan["issues"]:
+            raise ValueError("La validación actual detectó problemas: " + "; ".join(plan["issues"]))
         cur = con.cursor()
         before_patients = cur.execute("SELECT COUNT(*) FROM Pacientes").fetchone()[0]
         before_practitioners = cur.execute("SELECT COUNT(*) FROM Profesionales").fetchone()[0]
@@ -492,8 +550,9 @@ class AppFHIR:
             finally: con.close()
             self.cb_paciente["values"] = [f"{p[0]} | {p[2]}, {p[3]} | DNI {p[1]}" for p in self.pacientes]
             if self.pacientes:
-                self.cb_paciente.current(0); self.cargar_signos()
-            else: self.cb_signos["values"] = []
+                self.cb_paciente.set("")
+            else: self.cb_paciente.set("")
+            self.cb_signos.set(""); self.cb_signos["values"] = []; self.signos = []
         except Exception as exc:
             messagebox.showerror("Base de datos", str(exc), parent=self.root)
 
@@ -505,7 +564,7 @@ class AppFHIR:
             rows = con.execute("SELECT id,fecha_hora,motivo_consulta FROM SignosVitales WHERE paciente_id=? AND activo=1 ORDER BY fecha_hora DESC", (self.pacientes[idx][0],)).fetchall()
             self.signos = rows
             self.cb_signos["values"] = [f"{r[0]} | {r[1] or 'sin fecha'} | {r[2] or 'sin motivo'}" for r in rows]
-            if rows: self.cb_signos.current(0)
+            self.cb_signos.set("")
         finally: con.close()
 
     def exportar(self):
@@ -514,11 +573,16 @@ class AppFHIR:
             messagebox.showwarning("Seleccione un paciente", "Seleccione un paciente antes de exportar.", parent=self.root)
             return
         paciente_id, dni, apellido, nombre = self.pacientes[idx]
+        signo_idx = self.cb_signos.current()
+        if self.signos and signo_idx < 0:
+            messagebox.showwarning("Seleccione un registro", "Seleccione el registro de signos vitales antes de exportar.", parent=self.root)
+            return
+        signo_id = self.signos[signo_idx][0] if signo_idx >= 0 else None
         con = conectar_bd()
         try:
             paciente = con.execute("SELECT dni,nombre,apellido,fecha_nacimiento,sexo FROM Pacientes WHERE id=?", (paciente_id,)).fetchone()
             signos = con.execute("""SELECT id,fecha_hora,presion_sistolica,presion_diastolica,frecuencia_cardiaca,temperatura,saturacion_oxigeno,motivo_consulta
-                FROM SignosVitales WHERE paciente_id=? AND activo=1 ORDER BY fecha_hora""", (paciente_id,)).fetchall()
+                FROM SignosVitales WHERE paciente_id=? AND activo=1 AND id=? ORDER BY fecha_hora""", (paciente_id, signo_id)).fetchall()
             rx_rows = con.execute("""SELECT rx.id,rx.dosis,rx.via_administracion,rx.frecuencia,rx.duracion,rx.cantidad,rx.indicaciones,rx.fecha_prescripcion,rx.fecha_inicio,rx.fecha_fin,
                 f.codigo,f.nombre,pr.id,pr.dni,pr.nombre,pr.apellido,pr.fecha_nacimiento,pr.sexo,pr.matricula
                 FROM Prescripciones rx JOIN Farmacos f ON f.id=rx.farmaco_id JOIN Profesionales pr ON pr.id=rx.profesional_id
@@ -539,9 +603,9 @@ class AppFHIR:
                 value = signo[colidx]
                 if value is None: continue
                 resources.append({"resourceType":"Observation", "id":f"obs-{sid}-{code}", "status":"final",
-                    "subject":{"reference":f"Patient/{patient_ref}"}, "effectiveDateTime":str(fecha or datetime.now(timezone.utc).isoformat()),
+                    "subject":{"reference":f"Patient/{patient_ref}"}, "effectiveDateTime":str(fecha).replace(" ", "T", 1),
                     "code":{"coding":[{"system":"http://loinc.org","code":code,"display":display}]},
-                    "valueQuantity":{"value":value,"unit":unit}})
+                    "valueQuantity":{"value":value,"unit":unit,"system":"http://unitsofmeasure.org","code":unit}})
         seen_practitioners = set()
         for row in rx_rows:
             (rxid,dosis,via,frecuencia,duracion,cantidad,indicaciones,fecha_prescripcion,fecha_inicio,fecha_fin,
@@ -587,6 +651,7 @@ class AppFHIR:
     def validar_archivo(self):
         if not self.archivo_importar:
             messagebox.showwarning("Archivo requerido","Seleccione primero un archivo JSON.",parent=self.root); return
+        self.plan=None; self.btn_importar.config(state="disabled"); self.txt_import.delete("1.0", "end")
         try:
             datos=json.loads(self.archivo_importar.read_text(encoding="utf-8"))
             con=conectar_bd()
